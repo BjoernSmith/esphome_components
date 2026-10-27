@@ -279,7 +279,7 @@ void WavinAHC9000::update() {
         case 2: {
           if (this->read_registers(CAT_PACKED, ch_page, PACKED_MANUAL_TEMPERATURE, 1, regs) && regs.size() >= 1) {
             st.setpoint_c = this->raw_to_c(regs[0]);
-            ESP_LOGD(TAG, "CH%u setpoint=%.1fC", ch_num, st.setpoint_c);
+            ESP_LOGD(TAG, "CH%u setpoint=%.1fC raw=0x%04X", ch_num, st.setpoint_c, (unsigned) regs[0]);
           } else {
             ESP_LOGW(TAG, "CH%u: setpoint read failed", ch_num);
           }
@@ -443,8 +443,7 @@ void WavinAHC9000::add_active_channel(uint8_t ch) {
 // produces routinely - made the whole attempt unmatchable and cost a full
 // timeout. This version slides past leading rubbish until a plausible header
 // appears, validates the length against what was asked for instead of trusting
-// the wire, and gives up as soon as the line has been quiet for longer than a
-// few character times rather than waiting out the whole deadline.
+// the wire, and keeps looking past invalid frames until the receive deadline.
 bool WavinAHC9000::receive_frame_(uint8_t function_code, uint8_t expected_payload_bytes,
                                   std::vector<uint8_t> &frame) {
   const uint32_t deadline = millis() + this->receive_timeout_ms_;
@@ -471,31 +470,26 @@ bool WavinAHC9000::receive_frame_(uint8_t function_code, uint8_t expected_payloa
       frame.push_back((uint8_t) c);
 
       // Resynchronise: drop bytes until the header looks like our reply.
-      while (!frame.empty() && frame[0] != DEVICE_ADDR) {
-        frame.erase(frame.begin());
-        this->bus_.resyncs++;
-      }
-      if (frame.size() >= 2 && frame[1] != function_code) {
-        frame.erase(frame.begin());
-        this->bus_.resyncs++;
-        continue;
-      }
-      if (frame.size() >= 3 && frame[2] != expected_payload_bytes) {
-        // Length byte disagrees with the request - this is not our frame.
-        frame.erase(frame.begin());
-        this->bus_.resyncs++;
-        continue;
-      }
-      if (frame.size() == total_len) {
+      while (!frame.empty()) {
+        if (frame[0] != DEVICE_ADDR ||
+            (frame.size() >= 2 && frame[1] != function_code) ||
+            (frame.size() >= 3 && frame[2] != expected_payload_bytes)) {
+          frame.erase(frame.begin());
+          this->bus_.resyncs++;
+          continue;
+        }
+        if (frame.size() < total_len) break;
         if (crc16(frame.data(), frame.size()) == 0) return true;
         this->bus_.crc_errors++;
-        ESP_LOGD(TAG, "RX: CRC mismatch (len=%u)", (unsigned) frame.size());
-        return false;
+        ESP_LOGD(TAG, "RX: CRC mismatch (len=%u), resynchronising", (unsigned) frame.size());
+        frame.erase(frame.begin());
+        this->bus_.resyncs++;
       }
     }
-    // Once bytes have started arriving, a gap longer than a few character
-    // times means the frame is over (or was truncated); stop waiting.
-    if (seen_any && (micros() - last_byte_us) > this->rx_gap_us_) break;
+    if (!frame.empty() && (micros() - last_byte_us) > this->rx_gap_us_) {
+      this->bus_.resyncs += frame.size();
+      frame.clear();
+    }
     delayMicroseconds(50);
   }
   if (!frame.empty()) {
