@@ -102,6 +102,10 @@ class WavinAHC9000 : public PollingComponent, public uart::UARTDevice {
   void set_tx_enable_pin(GPIOPin *p) { this->tx_enable_pin_ = p; }
   // Optional half-duplex RS485 DE/RE (flow control) pin. If provided we drive HIGH to transmit and LOW to receive.
   void set_flow_control_pin(GPIOPin *p) { this->flow_control_pin_ = p; }
+  void set_local_echo(bool enabled) {
+    this->local_echo_override_ = true;
+    this->local_echo_enabled_ = enabled;
+  }
   void set_module_profile(ModuleProfile profile) { this->module_profile_ = profile; }
   void set_poll_channels_per_cycle(uint8_t n) { this->poll_channels_per_cycle_ = n == 0 ? 1 : (n > 16 ? 16 : n); }
   void set_allow_mode_writes(bool v) { this->allow_mode_writes_ = v; }
@@ -295,10 +299,13 @@ class WavinAHC9000 : public PollingComponent, public uart::UARTDevice {
   uint32_t inter_frame_delay_us_{0};  // silence between consecutive transactions, set by setup()
   bool inter_frame_override_{false};  // true when the YAML pinned it
   bool flush_rx_before_tx_{false};
+  bool local_echo_override_{false};
+  bool local_echo_enabled_{false};
   // True only when the transceiver keeps receiving while it transmits, i.e.
   // a bare tx_enable_pin. A combined DE/RE flow-control pin mutes the receiver.
   bool expect_echo_{false};
   uint8_t tx_len_{0};        // bytes in the frame just sent, bounds the echo drain
+  uint8_t tx_frame_[12] = {};
   uint32_t tx_done_us_{0};   // when the driver was released, for reply timing
   uint32_t rx_gap_us_{3000}; // silence that ends a reply, set from the baud rate
 

@@ -48,7 +48,8 @@ void WavinAHC9000::setup() {
   this->flush_rx_before_tx_ = true;
   // A combined DE/RE pin mutes the receiver while transmitting, so no echo of
   // our own frame comes back. A bare tx_enable_pin leaves the receiver on.
-  this->expect_echo_ = (this->tx_enable_pin_ != nullptr && this->flow_control_pin_ == nullptr);
+  this->expect_echo_ = !this->local_echo_override_ && this->tx_enable_pin_ != nullptr &&
+                       this->flow_control_pin_ == nullptr;
 
   // The driver must be released as soon as the last stop bit is out, because
   // the controller answers about one character later. flush() has already
@@ -79,7 +80,7 @@ void WavinAHC9000::setup() {
                 (unsigned) baud, profile, (unsigned) this->post_tx_guard_us_,
                 (unsigned) this->pre_tx_delay_us_, (unsigned) this->inter_frame_delay_us_,
                 (unsigned) this->rx_gap_us_, (unsigned) this->receive_timeout_ms_,
-                this->expect_echo_ ? "yes" : "no");
+                (this->expect_echo_ || this->local_echo_enabled_) ? "yes" : "no");
 
   // Restore runtime-commissioned zones before the first poll.
   this->zones_load_();
@@ -444,6 +445,8 @@ void WavinAHC9000::add_active_channel(uint8_t ch) {
 // timeout. This version slides past leading rubbish until a plausible header
 // appears, validates the length against what was asked for instead of trusting
 // the wire, and keeps looking past invalid frames until the receive deadline.
+// When local_echo is enabled, an exact copy of the transmitted request is
+// discarded before parsing the controller's reply.
 bool WavinAHC9000::receive_frame_(uint8_t function_code, uint8_t expected_payload_bytes,
                                   std::vector<uint8_t> &frame) {
   const uint32_t deadline = millis() + this->receive_timeout_ms_;
@@ -452,6 +455,28 @@ bool WavinAHC9000::receive_frame_(uint8_t function_code, uint8_t expected_payloa
   bool seen_any = false;
 
   frame.clear();
+  std::vector<uint8_t> echo_candidate;
+  bool echo_match_possible = this->local_echo_enabled_ && this->tx_len_ > 0;
+  auto process_byte = [this, &frame, total_len, function_code, expected_payload_bytes](uint8_t byte) -> bool {
+    frame.push_back(byte);
+    while (!frame.empty()) {
+      if (frame[0] != DEVICE_ADDR ||
+          (frame.size() >= 2 && frame[1] != function_code) ||
+          (frame.size() >= 3 && frame[2] != expected_payload_bytes)) {
+        frame.erase(frame.begin());
+        this->bus_.resyncs++;
+        continue;
+      }
+      if (frame.size() < total_len) break;
+      if (crc16(frame.data(), total_len) == 0) return true;
+      this->bus_.crc_errors++;
+      ESP_LOGD(TAG, "RX: CRC mismatch (len=%u), resynchronising", (unsigned) total_len);
+      frame.erase(frame.begin());
+      this->bus_.resyncs++;
+    }
+    return false;
+  };
+
   while (millis() < deadline) {
     while (this->available()) {
       int c = this->read();
@@ -467,30 +492,43 @@ bool WavinAHC9000::receive_frame_(uint8_t function_code, uint8_t expected_payloa
           if (dt > this->bus_.reply_us_max) this->bus_.reply_us_max = dt;
         }
       }
-      frame.push_back((uint8_t) c);
-
-      // Resynchronise: drop bytes until the header looks like our reply.
-      while (!frame.empty()) {
-        if (frame[0] != DEVICE_ADDR ||
-            (frame.size() >= 2 && frame[1] != function_code) ||
-            (frame.size() >= 3 && frame[2] != expected_payload_bytes)) {
-          frame.erase(frame.begin());
-          this->bus_.resyncs++;
+      uint8_t byte = (uint8_t) c;
+      if (echo_match_possible) {
+        echo_candidate.push_back(byte);
+        size_t echo_index = echo_candidate.size() - 1;
+        if (byte == this->tx_frame_[echo_index]) {
+          if (echo_candidate.size() == this->tx_len_) {
+            this->bus_.discarded_post_tx += this->tx_len_;
+            ESP_LOGD(TAG, "RX: discarded local echo (%u bytes)", (unsigned) this->tx_len_);
+            echo_candidate.clear();
+            echo_match_possible = false;
+          }
           continue;
         }
-        if (frame.size() < total_len) break;
-        if (crc16(frame.data(), frame.size()) == 0) return true;
-        this->bus_.crc_errors++;
-        ESP_LOGD(TAG, "RX: CRC mismatch (len=%u), resynchronising", (unsigned) frame.size());
-        frame.erase(frame.begin());
-        this->bus_.resyncs++;
+        echo_match_possible = false;
+        for (uint8_t candidate_byte : echo_candidate) {
+          if (process_byte(candidate_byte)) return true;
+        }
+        echo_candidate.clear();
+        continue;
       }
+      if (process_byte(byte)) return true;
+    }
+    if (!echo_candidate.empty() && (micros() - last_byte_us) > this->rx_gap_us_) {
+      echo_match_possible = false;
+      for (uint8_t candidate_byte : echo_candidate) {
+        if (process_byte(candidate_byte)) return true;
+      }
+      echo_candidate.clear();
     }
     if (!frame.empty() && (micros() - last_byte_us) > this->rx_gap_us_) {
       this->bus_.resyncs += frame.size();
       frame.clear();
     }
     delayMicroseconds(50);
+  }
+  if (!echo_candidate.empty()) {
+    ESP_LOGD(TAG, "RX: incomplete local-echo candidate (%u bytes)", (unsigned) echo_candidate.size());
   }
   if (!frame.empty()) {
     ESP_LOGD(TAG, "RX: incomplete frame (%u of %u bytes)", (unsigned) frame.size(), (unsigned) total_len);
@@ -552,6 +590,7 @@ bool WavinAHC9000::read_registers(uint8_t category, uint8_t page, uint8_t index,
     this->prepare_for_tx_();
     ESP_LOGD(TAG, "TX: addr=0x%02X fc=0x%02X cat=%u idx=%u page=%u cnt=%u attempt=%u", msg[0], msg[1], category, index, page, count, (unsigned) attempt + 1);
     this->tx_len_ = 8;
+    std::copy(msg, msg + this->tx_len_, this->tx_frame_);
     this->write_array(msg, 8);
     this->flush();
     this->finish_tx_();
@@ -601,6 +640,7 @@ bool WavinAHC9000::write_register(uint8_t category, uint8_t page, uint8_t index,
     this->prepare_for_tx_();
     ESP_LOGD(TAG, "TX-WR: cat=%u idx=%u page=%u val=0x%04X attempt=%u", category, index, page, (unsigned) value, (unsigned) attempt + 1);
     this->tx_len_ = 10;
+    std::copy(msg, msg + this->tx_len_, this->tx_frame_);
     this->write_array(msg, 10);
     this->flush();
     this->finish_tx_();
@@ -647,6 +687,7 @@ bool WavinAHC9000::write_masked_register(uint8_t category, uint8_t page, uint8_t
     this->prepare_for_tx_();
     ESP_LOGD(TAG, "TX-WM: cat=%u idx=%u page=%u and=0x%04X or=0x%04X attempt=%u", category, index, page, (unsigned) and_mask, (unsigned) or_mask, (unsigned) attempt + 1);
     this->tx_len_ = 12;
+    std::copy(msg, msg + this->tx_len_, this->tx_frame_);
     this->write_array(msg, 12);
     this->flush();
     this->finish_tx_();
