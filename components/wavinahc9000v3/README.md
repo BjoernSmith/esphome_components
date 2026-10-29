@@ -262,6 +262,7 @@ All optional except `uart_id`.
 | `update_interval` | `5s` | Poll interval |
 | `poll_channels_per_cycle` | `2` | Channels read per cycle; raise to discover faster |
 | `flow_control_pin` / `tx_enable_pin` | - | RS-485 direction control, see section 1 |
+| `local_echo` | automatic | Override local UART echo detection; enable if transmitted bytes are echoed back |
 | `module` | `default` | `ustepper` for slightly longer transceiver turnaround |
 | `inter_frame_delay_us` | from `module` | Silence enforced between transactions. Raising it did not help on a tested AHC-9000; try it only if the controller ignores requests. |
 | `receive_timeout_ms` | `200` | How long to wait for a reply to *start*. Measured latency on an AHC-9000 is 3-39 ms. |

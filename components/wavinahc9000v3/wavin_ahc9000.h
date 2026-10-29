@@ -14,6 +14,7 @@
 #include <string>
 
 namespace esphome {
+namespace binary_sensor { class BinarySensor; }
 namespace sensor { class Sensor; }
 namespace switch_ { class Switch; }
 namespace button { class Button; }
@@ -124,6 +125,7 @@ class WavinAHC9000 : public PollingComponent, public uart::UARTDevice {
 
   void add_channel_climate(WavinZoneClimate *c);
   void add_group_climate(WavinZoneClimate *c);
+  void add_channel_output_binary_sensor(uint8_t ch, binary_sensor::BinarySensor *s);
   void add_channel_battery_sensor(uint8_t ch, sensor::Sensor *s);
   void add_channel_temperature_sensor(uint8_t ch, sensor::Sensor *s);
   void add_channel_comfort_setpoint_sensor(uint8_t ch, sensor::Sensor *s);
@@ -256,6 +258,7 @@ class WavinAHC9000 : public PollingComponent, public uart::UARTDevice {
   std::map<uint8_t, ChannelState> channels_;
   std::vector<WavinZoneClimate *> single_ch_climates_;
   std::vector<WavinZoneClimate *> group_climates_;
+  std::map<uint8_t, binary_sensor::BinarySensor *> channel_output_binary_sensors_;
   std::map<uint8_t, sensor::Sensor *> battery_sensors_;
   std::map<uint8_t, sensor::Sensor *> temperature_sensors_;
   std::map<uint8_t, sensor::Sensor *> floor_temperature_sensors_;
@@ -462,6 +465,10 @@ class WavinYamlDumpButton : public button::Button {
 // Inline helpers for configuring sensors
 inline void WavinAHC9000::add_channel_battery_sensor(uint8_t ch, sensor::Sensor *s) {
   this->battery_sensors_[ch] = s;
+}
+
+inline void WavinAHC9000::add_channel_output_binary_sensor(uint8_t ch, binary_sensor::BinarySensor *s) {
+  this->channel_output_binary_sensors_[ch] = s;
 }
 
 inline void WavinAHC9000::add_channel_temperature_sensor(uint8_t ch, sensor::Sensor *s) {

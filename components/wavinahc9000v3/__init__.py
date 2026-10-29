@@ -8,6 +8,7 @@ CODEOWNERS = ["@you"]
 # Ensure dependent component code is compiled so their headers are available.
 AUTO_LOAD = [
     "climate",
+    "binary_sensor",
     "uart",
     "sensor",
     "number",

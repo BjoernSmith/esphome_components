@@ -1,5 +1,6 @@
 #include "wavin_ahc9000.h"
 #include "esphome/core/log.h"
+#include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/sensor/sensor.h"
 #include <vector>
 #include <cmath>
@@ -1133,6 +1134,12 @@ void WavinAHC9000::publish_updates() {
            (unsigned) this->single_ch_climates_.size(), (unsigned) this->group_climates_.size());
   for (auto *c : this->single_ch_climates_) c->update_from_parent();
   for (auto *c : this->group_climates_) c->update_from_parent();
+  for (auto &kv : this->channel_output_binary_sensors_) {
+    if (kv.second == nullptr) continue;
+    auto action = this->get_channel_action(kv.first);
+    if (action == climate::CLIMATE_ACTION_OFF) continue;
+    kv.second->publish_state(action == climate::CLIMATE_ACTION_HEATING);
+  }
   // Channel sensors
   for (auto &kv : this->temperature_sensors_) {
     uint8_t ch = kv.first;
@@ -1412,20 +1419,7 @@ void WavinZoneClimate::update_from_parent() {
       if (!std::isnan(fmax)) this->target_temperature_high = fmax;
     }
     this->mode = this->parent_->get_channel_mode(ch);
-    // Action: derive from temperatures with a small deadband, fallback to controller bit
-    const float db = 0.3f;  // hysteresis in °C
-    auto raw_action = this->parent_->get_channel_action(ch);
-    if (!std::isnan(this->current_temperature) && !std::isnan(this->target_temperature)) {
-      if (this->current_temperature > this->target_temperature + db) {
-        this->action = climate::CLIMATE_ACTION_IDLE;
-      } else if (this->current_temperature < this->target_temperature - db) {
-        this->action = climate::CLIMATE_ACTION_HEATING;
-      } else {
-        this->action = raw_action;
-      }
-    } else {
-      this->action = raw_action;
-    }
+    this->action = this->parent_->get_channel_action(ch);
   } else if (!this->members_.empty()) {
     float sum_curr = 0.0f;
     int n_curr = 0;
@@ -1456,19 +1450,7 @@ void WavinZoneClimate::update_from_parent() {
     // Use primary member's setpoint directly (not an average)
     if (!std::isnan(primary_setpoint)) this->target_temperature = primary_setpoint;
     this->mode = all_off ? climate::CLIMATE_MODE_OFF : climate::CLIMATE_MODE_HEAT;
-    // Group action: prefer temperature comparison with deadband, fallback to any member heating
-    const float db = 0.3f;
-    if (!std::isnan(this->current_temperature) && !std::isnan(this->target_temperature)) {
-      if (this->current_temperature > this->target_temperature + db) {
-        this->action = climate::CLIMATE_ACTION_IDLE;
-      } else if (this->current_temperature < this->target_temperature - db) {
-        this->action = climate::CLIMATE_ACTION_HEATING;
-      } else {
-        this->action = any_heat ? climate::CLIMATE_ACTION_HEATING : climate::CLIMATE_ACTION_IDLE;
-      }
-    } else {
-      this->action = any_heat ? climate::CLIMATE_ACTION_HEATING : climate::CLIMATE_ACTION_IDLE;
-    }
+    this->action = any_heat ? climate::CLIMATE_ACTION_HEATING : climate::CLIMATE_ACTION_IDLE;
   }
   this->publish_state();
 }
