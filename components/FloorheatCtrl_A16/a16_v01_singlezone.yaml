@@ -221,6 +221,16 @@ external_components:
 # Heatmesh zone controller - SIMPLE TEST
 heatmesh:
   id: heatmesh_controller
+  zones:
+    - zone_id: test_living_room
+      temperature_sensor: test_zone_temp
+      valve: test_valve_y01
+      target_temperature: 21.0
+      sensor_timeout: 15min
+      kp: 1.2
+      ki: 0.08
+      period_ms: 30000
+      pwm_period_min: 15
 
 binary_sensor:
   - platform: template
