@@ -36,7 +36,7 @@ ZONE_SCHEMA = cv.Schema(
 CONFIG_SCHEMA = cv.COMPONENT_SCHEMA.extend(
     {
         cv.GenerateID(): cv.declare_id(HeatmeshComponent),
-        cv.Optional(CONF_ZONES, default=[]): cv.All(cv.ensure_list, [ZONE_SCHEMA]),
+        cv.Optional(CONF_ZONES, default=[]): cv.ensure_list(ZONE_SCHEMA),
     }
 )
 
