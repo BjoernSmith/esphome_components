@@ -252,7 +252,7 @@ binary_sensor:
       }
       return false;
 
-# Number control for setpoint temperature
+# Test direct read - NOT via template lambda
 number:
   - platform: template
     name: "Test Zone Setpoint"
@@ -263,8 +263,17 @@ number:
     initial_value: 21.0
     set_action:
       - lambda: |-
+          ESP_LOGI("heatmesh_test", "SET CALLED with x=%.1f", x);
           auto hm = esphome::heatmesh::HeatmeshComponent::get_instance();
           if (hm) {
+            ESP_LOGI("heatmesh_test", "HM instance found!");
             auto zone = hm->get_zone("test_living_room");
-            if (zone) zone->set_target_temperature(x);
+            if (zone) {
+              ESP_LOGI("heatmesh_test", "Zone found! Setting to %.1f", x);
+              zone->set_target_temperature(x);
+            } else {
+              ESP_LOGI("heatmesh_test", "Zone NOT found!");
+            }
+          } else {
+            ESP_LOGI("heatmesh_test", "HM instance is NULL!");
           }

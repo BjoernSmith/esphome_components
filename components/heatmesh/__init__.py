@@ -54,24 +54,17 @@ async def to_code(config):
     if CONF_HEATMESH not in config:
         return
     
-    # Add C++ source files to compile
-    cg.add_source_file("heatmesh.cpp")
-    cg.add_source_file("zone_controller.cpp")
-    cg.add_source_file("sensor_manager.cpp")
-    
     hm_config = config[CONF_HEATMESH]
     var = cg.new_Pvariable(hm_config[CONF_ID])
     await cg.register_component(var, hm_config)
 
     cg.add_define("HEATMESH_COMPONENT")
 
-    zone_count = 0
     for zone_conf in hm_config[CONF_ZONES]:
         zone_id = zone_conf[CONF_ZONE_ID]
         temp_sensor = await cg.get_variable(zone_conf[CONF_TEMPERATURE_SENSOR])
         valve = await cg.get_variable(zone_conf[CONF_VALVE])
         
-        zone_count += 1
         cg.add(var.add_zone(
             cg.safe_exp(f'"{zone_id}"'),
             temp_sensor,
