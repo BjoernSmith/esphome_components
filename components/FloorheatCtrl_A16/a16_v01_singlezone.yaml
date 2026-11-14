@@ -218,18 +218,18 @@ external_components:
     components: [heatmesh]
     refresh: 0s
 
-# Heatmesh zone controller
+# Heatmesh zone controller - SIMPLE TEST
 heatmesh:
   zones:
-    - zone_id: "test_living_room"
+    - zone_id: test_living_room
       temperature_sensor: test_zone_temp
       valve: test_valve_y01
       target_temperature: 21.0
-      sensor_timeout: "15min"
+      sensor_timeout: 15min
       kp: 1.2
       ki: 0.08
-      period_ms: 30000      # Control loop every 30 seconds
-      pwm_period_min: 15     # 15-minute time-proportional period
+      period_ms: 30000
+      pwm_period_min: 15
 
 binary_sensor:
   - platform: template

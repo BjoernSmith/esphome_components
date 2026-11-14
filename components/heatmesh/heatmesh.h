@@ -27,6 +27,8 @@ class HeatmeshComponent : public Component {
  public:
   HeatmeshComponent() = default;
 
+  float get_setup_priority() const override { return setup_priority::BUS - 1.0f; }
+
   void setup() override;
   void loop() override;
   void dump_config() override;
