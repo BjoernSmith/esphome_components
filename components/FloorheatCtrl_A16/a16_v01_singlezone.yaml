@@ -220,6 +220,7 @@ external_components:
 
 # Heatmesh zone controller - SIMPLE TEST
 heatmesh:
+  id: heatmesh_controller
   zones:
     - zone_id: test_living_room
       temperature_sensor: test_zone_temp
