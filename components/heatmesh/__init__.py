@@ -22,8 +22,8 @@ CONF_PWM_PERIOD_MIN = "pwm_period_min"
 ZONE_SCHEMA = cv.Schema(
     {
         cv.Required(CONF_ZONE_ID): cv.string,
-        cv.Required(CONF_TEMPERATURE_SENSOR): cv.string,
-        cv.Required(CONF_VALVE): cv.string,
+        cv.Required(CONF_TEMPERATURE_SENSOR): cv.use_id(sensor.Sensor),
+        cv.Required(CONF_VALVE): cv.use_id(switch.Switch),
         cv.Optional(CONF_SETPOINT, default=21.0): cv.float_range(min=5.0, max=30.0),
         cv.Optional(CONF_SENSOR_TIMEOUT, default="15min"): cv.time_period,
         cv.Optional(CONF_KP, default=1.0): cv.float_range(min=0.1, max=10.0),
@@ -49,11 +49,8 @@ async def to_code(config):
 
     for zone_conf in config[CONF_ZONES]:
         zone_id = zone_conf[CONF_ZONE_ID]
-        temp_sensor_id = zone_conf[CONF_TEMPERATURE_SENSOR]
-        valve_id = zone_conf[CONF_VALVE]
-        
-        temp_sensor = await cg.get_variable(temp_sensor_id)
-        valve = await cg.get_variable(valve_id)
+        temp_sensor = await cg.get_variable(zone_conf[CONF_TEMPERATURE_SENSOR])
+        valve = await cg.get_variable(zone_conf[CONF_VALVE])
         
         cg.add(var.add_zone(
             cg.safe_exp(f'"{zone_id}"'),
