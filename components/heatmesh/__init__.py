@@ -54,7 +54,10 @@ async def to_code(config):
     if CONF_HEATMESH not in config:
         return
     
-    cg.add_build_flag("-DHEATMESH_DEBUG")  # Enable debug
+    # Add C++ source files to compile
+    cg.add_source_file("heatmesh.cpp")
+    cg.add_source_file("zone_controller.cpp")
+    cg.add_source_file("sensor_manager.cpp")
     
     hm_config = config[CONF_HEATMESH]
     var = cg.new_Pvariable(hm_config[CONF_ID])
