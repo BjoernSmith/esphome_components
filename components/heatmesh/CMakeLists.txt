@@ -1,12 +1,10 @@
-idf_component_register(
-    SRCS 
-        heatmesh.cpp
-        zone_controller.cpp
-        sensor_manager.cpp
-    INCLUDE_DIRS 
-        .
-    REQUIRES
-        esp_system
-        sensor
-        switch
+set(COMPONENT_SRCS
+    "heatmesh.cpp"
+    "zone_controller.cpp"
+    "sensor_manager.cpp"
 )
+
+set(COMPONENT_ADD_INCLUDEDIRS ".")
+
+register_component()
+

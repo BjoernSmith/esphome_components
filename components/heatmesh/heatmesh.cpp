@@ -9,8 +9,17 @@ namespace heatmesh {
 // Static member initialization
 HeatmeshComponent* HeatmeshComponent::instance_ = nullptr;
 
+HeatmeshComponent* HeatmeshComponent::get_instance() {
+  if (instance_ == nullptr) {
+    ESP_LOGE(TAG, "WARNING: get_instance() called but instance_ is NULL!");
+  }
+  return instance_;
+}
+
 void HeatmeshComponent::setup() {
+  ESP_LOGI(TAG, "HeatmeshComponent::setup() CALLED");
   instance_ = this;  // Set global singleton instance
+  ESP_LOGI(TAG, "instance_ set to %p", (void*)instance_);
   ESP_LOGI(TAG, "HeatmeshComponent setup starting; %zu zones configured", zone_configs_.size());
   
   // Create zone controllers from configs
@@ -33,7 +42,7 @@ void HeatmeshComponent::setup() {
              cfg.sensor_timeout_ms, cfg.kp, cfg.ki);
   }
   
-  ESP_LOGI(TAG, "HeatmeshComponent setup complete");
+  ESP_LOGI(TAG, "HeatmeshComponent setup complete, instance_=%p", (void*)instance_);
 }
 
 void HeatmeshComponent::loop() {

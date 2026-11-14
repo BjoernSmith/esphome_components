@@ -49,7 +49,7 @@ class HeatmeshComponent : public Component {
   size_t get_zone_count() const { return zones_.size(); }
 
   // Utility for lambda access (set in codegen)
-  static HeatmeshComponent* get_instance() { return instance_; }
+  static HeatmeshComponent* get_instance();
 
  private:
   static HeatmeshComponent* instance_;
