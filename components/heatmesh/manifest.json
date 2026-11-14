@@ -1,0 +1,8 @@
+{
+  "version": "0.1.0",
+  "documentation": "https://github.com/BjoernSmith/esphome_components/tree/main/components/heatmesh",
+  "dependencies": [],
+  "codeowners": ["@BjoernSmith"],
+  "requirements": [],
+  "maintenance_status": "experimental"
+}
