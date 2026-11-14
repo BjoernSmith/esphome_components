@@ -38,20 +38,29 @@ ZONE_SCHEMA = cv.Schema(
 
 CONFIG_SCHEMA = cv.Schema(
     {
-        cv.GenerateID(): cv.declare_id(HeatmeshComponent),
-        cv.Optional(CONF_ZONES, default=[]): cv.All(cv.ensure_list, [ZONE_SCHEMA]),
-    }
-).extend(cv.COMPONENT_SCHEMA)
+        cv.Optional(CONF_HEATMESH): cv.Schema(
+            {
+                cv.GenerateID(): cv.declare_id(HeatmeshComponent),
+                cv.Optional(CONF_ZONES, default=[]): cv.All(cv.ensure_list, [ZONE_SCHEMA]),
+            }
+        ).extend(cv.COMPONENT_SCHEMA),
+    },
+    extra=cv.ALLOW_EXTRA
+)
 
 
 @coroutine_with_priority(50.0)  # Lower priority = runs AFTER sensors
 async def to_code(config):
-    var = cg.new_Pvariable(config[CONF_ID])
-    await cg.register_component(var, config)
+    if CONF_HEATMESH not in config:
+        return
+    
+    hm_config = config[CONF_HEATMESH]
+    var = cg.new_Pvariable(hm_config[CONF_ID])
+    await cg.register_component(var, hm_config)
 
     cg.add_define("HEATMESH_COMPONENT")
 
-    for zone_conf in config[CONF_ZONES]:
+    for zone_conf in hm_config[CONF_ZONES]:
         zone_id = zone_conf[CONF_ZONE_ID]
         temp_sensor = await cg.get_variable(zone_conf[CONF_TEMPERATURE_SENSOR])
         valve = await cg.get_variable(zone_conf[CONF_VALVE])
