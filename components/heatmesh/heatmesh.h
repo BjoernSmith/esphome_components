@@ -3,7 +3,6 @@
 #include "esphome/core/component.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
-#include "esphome/components/climate/climate.h"
 #include "zone_controller.h"
 #include "sensor_manager.h"
 #include <vector>

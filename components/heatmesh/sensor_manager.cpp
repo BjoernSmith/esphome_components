@@ -8,7 +8,7 @@ namespace heatmesh {
 
 void SensorManager::register_sensor(const std::string& sensor_id, sensor::Sensor* esphome_sensor) {
   if (esphome_sensor == nullptr) {
-    ESP_WARN(TAG, "Cannot register null sensor for %s", sensor_id.c_str());
+    ESP_LOGW(TAG, "Cannot register null sensor for %s", sensor_id.c_str());
     return;
   }
   
@@ -17,7 +17,7 @@ void SensorManager::register_sensor(const std::string& sensor_id, sensor::Sensor
   ms.has_valid_reading = false;
   sensors_[sensor_id] = ms;
   
-  ESP_INFO(TAG, "Registered sensor: %s", sensor_id.c_str());
+  ESP_LOGI(TAG, "Registered sensor: %s", sensor_id.c_str());
 }
 
 void SensorManager::loop() {
@@ -42,7 +42,7 @@ SensorManager::SensorReading SensorManager::get_reading(const std::string& senso
   
   auto it = sensors_.find(sensor_id);
   if (it == sensors_.end()) {
-    ESP_WARN(TAG, "Sensor %s not found in registry", sensor_id.c_str());
+    ESP_LOGW(TAG, "Sensor %s not found in registry", sensor_id.c_str());
     return result;
   }
   

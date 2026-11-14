@@ -1,7 +1,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import sensor, switch
-from esphome.const import CONF_ID, CONF_TEMPERATURE_SENSOR
+from esphome.const import CONF_ID
 from esphome.core import coroutine_with_priority
 
 CODEOWNERS = ["@BjoernSmith"]
@@ -13,6 +13,7 @@ HeatmeshComponent = heatmesh_ns.class_("HeatmeshComponent", cg.Component)
 CONF_HEATMESH = "heatmesh"
 CONF_ZONES = "zones"
 CONF_ZONE_ID = "zone_id"
+CONF_TEMPERATURE_SENSOR = "temperature_sensor"
 CONF_VALVE = "valve"
 CONF_SENSOR_TIMEOUT = "sensor_timeout"
 CONF_SETPOINT = "target_temperature"
@@ -48,7 +49,7 @@ CONFIG_SCHEMA = cv.Schema(
 )
 
 
-@coroutine_with_priority("before_connection")
+@coroutine_with_priority(40.0)
 async def to_code(config):
     if CONF_HEATMESH not in config:
         return

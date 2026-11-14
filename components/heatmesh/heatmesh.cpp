@@ -28,7 +28,7 @@ void HeatmeshComponent::setup() {
     );
     zones_.push_back(std::move(zone));
     
-    ESP_LOGI(TAG, "  Zone '%s': target=%.1f°C, timeout=%u ms, kp=%.2f, ki=%.2f",
+    ESP_LOGI(TAG, "  Zone '%s': target=%.1f°C, timeout=%lu ms, kp=%.2f, ki=%.2f",
              cfg.zone_id.c_str(), cfg.target_temperature, 
              cfg.sensor_timeout_ms, cfg.kp, cfg.ki);
   }

@@ -72,7 +72,7 @@ void ZoneController::update_sensor_input_() {
     sensor_valid_ = true;
   } else {
     sensor_valid_ = false;
-    ESP_WARN(TAG, "[%s] Sensor timeout, age=%u ms", zone_id_.c_str(), sensor_age_ms_);
+    ESP_LOGW(TAG, "[%s] Sensor timeout, age=%lu ms", zone_id_.c_str(), sensor_age_ms_);
   }
 }
 
@@ -86,7 +86,7 @@ void ZoneController::run_pi_controller_(uint32_t dt_ms) {
     } else {
       error = 0.0f;  // No heat requested
     }
-    ESP_WARN(TAG, "[%s] FAILSAFE: sensor invalid, heat_demand=%.1f%%", 
+    ESP_LOGW(TAG, "[%s] FAILSAFE: sensor invalid, heat_demand=%.1f%%", 
              zone_id_.c_str(), heat_demand_);
   } else {
     error = target_temperature_ - current_temperature_;
@@ -113,7 +113,7 @@ void ZoneController::run_pi_controller_(uint32_t dt_ms) {
     heat_demand_ = 100.0f;
   }
   
-  ESP_DEBUG(TAG, "[%s] PI: T=%.2f°C, target=%.1f°C, error=%.2f, p=%.2f, i=%.2f, demand=%.1f%%",
+  ESP_LOGD(TAG, "[%s] PI: T=%.2f°C, target=%.1f°C, error=%.2f, p=%.2f, i=%.2f, demand=%.1f%%",
             zone_id_.c_str(), current_temperature_, target_temperature_, 
             error, p_term, integrator_, heat_demand_);
 }
@@ -151,13 +151,13 @@ void ZoneController::apply_valve_state_(bool new_state, uint32_t now_ms) {
   
   if (valve_output_ != nullptr) {
     if (new_state) {
-      valve_output_->turn_on("heatmesh");
+      valve_output_->turn_on();
     } else {
-      valve_output_->turn_off("heatmesh");
+      valve_output_->turn_off();
     }
   }
   
-  ESP_INFO(TAG, "[%s] Valve %s (switch #%u, demand=%.1f%%)",
+  ESP_LOGI(TAG, "[%s] Valve %s (switch #%u, demand=%.1f%%)",
            zone_id_.c_str(), new_state ? "ON" : "OFF", 
            valve_switch_count_, heat_demand_);
   
@@ -169,7 +169,7 @@ void ZoneController::set_target_temperature(float temp) {
   if (temp > 30.0f) temp = 30.0f;
   
   if (target_temperature_ != temp) {
-    ESP_INFO(TAG, "[%s] Setpoint changed: %.1f°C -> %.1f°C",
+    ESP_LOGI(TAG, "[%s] Setpoint changed: %.1f°C -> %.1f°C",
              zone_id_.c_str(), target_temperature_, temp);
     target_temperature_ = temp;
     // On setpoint change, reset integrator to avoid windup
