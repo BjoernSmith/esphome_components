@@ -55,17 +55,22 @@ void ZoneController::update_sensor_input_() {
     return;
   }
   
-  if (!temperature_sensor_->has_state()) {
-    sensor_valid_ = false;
+  uint32_t now_ms = millis();
+  
+  // If sensor has a new state, update reading and timestamp
+  if (temperature_sensor_->has_state()) {
+    current_temperature_ = temperature_sensor_->get_state();
+    last_sensor_update_ms_ = now_ms;
+    sensor_age_ms_ = 0;
+  } else {
+    // Sensor hasn't provided data yet
     sensor_age_ms_ = UINT32_MAX;
-    return;
   }
   
-  current_temperature_ = temperature_sensor_->get_state();
-  
-  // For v0.1, we track sensor age via a simple counter.
-  // In a full system, this would integrate with the BLE timestamp.
-  sensor_age_ms_ += control_period_ms_;
+  // Calculate age since last update
+  if (last_sensor_update_ms_ > 0) {
+    sensor_age_ms_ = now_ms - last_sensor_update_ms_;
+  }
   
   // Sensor is valid if age is within timeout
   if (sensor_age_ms_ <= sensor_timeout_ms_) {
@@ -157,7 +162,7 @@ void ZoneController::apply_valve_state_(bool new_state, uint32_t now_ms) {
     }
   }
   
-  ESP_LOGI(TAG, "[%s] Valve %s (switch #%u, demand=%.1f%%)",
+  ESP_LOGI(TAG, "[%s] Valve %s (switch #%lu, demand=%.1f%%)",
            zone_id_.c_str(), new_state ? "ON" : "OFF", 
            valve_switch_count_, heat_demand_);
   

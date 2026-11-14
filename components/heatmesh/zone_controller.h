@@ -61,6 +61,7 @@ class ZoneController {
   bool valve_on_ = false;
   bool sensor_valid_ = false;
   uint32_t sensor_age_ms_ = 0;
+  uint32_t last_sensor_update_ms_ = 0;  // Track when sensor last updated
   uint32_t last_control_ms_ = 0;
   uint32_t last_valve_change_ms_ = 0;
   uint32_t valve_switch_count_ = 0;

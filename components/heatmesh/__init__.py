@@ -49,7 +49,7 @@ CONFIG_SCHEMA = cv.Schema(
 )
 
 
-@coroutine_with_priority(40.0)
+@coroutine_with_priority(50.0)  # Lower priority = runs AFTER sensors
 async def to_code(config):
     if CONF_HEATMESH not in config:
         return
@@ -65,22 +65,15 @@ async def to_code(config):
         temp_sensor = await cg.get_variable(zone_conf[CONF_TEMPERATURE_SENSOR])
         valve = await cg.get_variable(zone_conf[CONF_VALVE])
         
-        setpoint = zone_conf[CONF_SETPOINT]
-        sensor_timeout = int(zone_conf[CONF_SENSOR_TIMEOUT].total_seconds() * 1000)
-        kp = zone_conf[CONF_KP]
-        ki = zone_conf[CONF_KI]
-        period_ms = zone_conf[CONF_PERIOD_MS]
-        pwm_period_min = zone_conf[CONF_PWM_PERIOD_MIN]
-
         cg.add(var.add_zone(
             cg.safe_exp(f'"{zone_id}"'),
             temp_sensor,
             valve,
-            setpoint,
-            sensor_timeout,
-            kp,
-            ki,
-            period_ms,
-            pwm_period_min,
+            zone_conf[CONF_SETPOINT],
+            int(zone_conf[CONF_SENSOR_TIMEOUT].total_seconds() * 1000),
+            zone_conf[CONF_KP],
+            zone_conf[CONF_KI],
+            zone_conf[CONF_PERIOD_MS],
+            zone_conf[CONF_PWM_PERIOD_MIN],
         ))
 
