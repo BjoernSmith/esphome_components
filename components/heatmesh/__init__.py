@@ -2,15 +2,13 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import sensor, switch
 from esphome.const import CONF_ID
-from esphome.core import coroutine_with_priority
 
 CODEOWNERS = ["@BjoernSmith"]
-DEPENDENCIES = ["esp32_ble_tracker"]
+AUTO_LOAD = ["sensor", "switch", "binary_sensor", "number", "text_sensor"]
 
 heatmesh_ns = cg.esphome_ns.namespace("heatmesh")
 HeatmeshComponent = heatmesh_ns.class_("HeatmeshComponent", cg.Component)
 
-CONF_HEATMESH = "heatmesh"
 CONF_ZONES = "zones"
 CONF_ZONE_ID = "zone_id"
 CONF_TEMPERATURE_SENSOR = "temperature_sensor"
@@ -36,15 +34,16 @@ ZONE_SCHEMA = cv.Schema(
     }
 )
 
-CONFIG_SCHEMA = cv.Schema(
-    {
-        cv.GenerateID(): cv.declare_id(HeatmeshComponent),
-        cv.Optional(CONF_ZONES, default=[]): cv.All(cv.ensure_list, [ZONE_SCHEMA]),
-    }
-).extend(cv.COMPONENT_SCHEMA)
+CONFIG_SCHEMA = (
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.declare_id(HeatmeshComponent),
+            cv.Optional(CONF_ZONES, default=[]): cv.All(cv.ensure_list, [ZONE_SCHEMA]),
+        }
+    ).extend(cv.COMPONENT_SCHEMA)
+)
 
 
-@coroutine_with_priority(50.0)  # Lower priority = runs AFTER sensors
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
