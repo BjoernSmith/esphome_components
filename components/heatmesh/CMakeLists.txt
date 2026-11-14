@@ -1,9 +1,9 @@
-set(COMPONENT_SRCS
-    "heatmesh.cpp"
+esphome_component_register(
+  COMPONENT_NAME heatmesh
+  SRC heatmesh.cpp
+  INCLUDE_DIRS .
+  REQUIRES sensor switch
 )
 
-set(COMPONENT_ADD_INCLUDEDIRS ".")
-
-register_component()
 
 
