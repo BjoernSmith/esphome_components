@@ -25,7 +25,7 @@ ZONE_SCHEMA = cv.Schema(
         cv.Required(CONF_TEMPERATURE_SENSOR): cv.use_id(sensor.Sensor),
         cv.Required(CONF_VALVE): cv.use_id(switch.Switch),
         cv.Optional(CONF_SETPOINT, default=21.0): cv.float_range(min=5.0, max=30.0),
-        cv.Optional(CONF_SENSOR_TIMEOUT, default="15min"): cv.All(cv.time_period, cv.Range(min=cv.TimePeriod(seconds=30))),
+        cv.Optional(CONF_SENSOR_TIMEOUT, default=900000): cv.All(cv.time_period, cv.Range(min=cv.TimePeriod(seconds=30))),
         cv.Optional(CONF_KP, default=1.0): cv.float_range(min=0.1, max=10.0),
         cv.Optional(CONF_KI, default=0.05): cv.float_range(min=0.0, max=1.0),
         cv.Optional(CONF_PERIOD_MS, default=30000): cv.int_range(min=1000, max=120000),
