@@ -11,16 +11,19 @@ namespace heatmesh {
 static const char *const TAG = "heatmesh.zone";
 static const uint32_t DIAGNOSTIC_PUBLISH_INTERVAL_MS = 10000;
 
+// Stores the zone's control dependencies and converts configured periods to milliseconds.
 ZoneController::ZoneController(const std::string &zone_id, sensor::Sensor *temperature_sensor,
                                switch_::Switch *valve_output, float target_temperature,
                                uint32_t sensor_timeout_ms, float kp, float ki,
                                uint32_t control_period_ms, uint32_t pwm_period_min,
-                               uint32_t min_on_time_ms)
+                               uint32_t min_on_time_ms, uint32_t boost_time_ms)
     : zone_id_(zone_id), temperature_sensor_(temperature_sensor), valve_output_(valve_output),
       target_temperature_(target_temperature), sensor_timeout_ms_(sensor_timeout_ms),
       kp_(kp), ki_(ki), control_period_ms_(control_period_ms),
-      pwm_period_ms_(pwm_period_min * 60000UL), min_on_time_ms_(min_on_time_ms) {}
+      pwm_period_ms_(pwm_period_min * 60000UL), min_on_time_ms_(min_on_time_ms),
+      boost_time_ms_(boost_time_ms) {}
 
+// Starts the valve safely, subscribes to temperature updates, and restores climate state.
 void ZoneController::setup() {
   if (setup_complete_)
     return;
@@ -36,8 +39,9 @@ void ZoneController::setup() {
   if (valve_output_ == nullptr)
     ESP_LOGE(TAG, "[%s] Missing valve output", zone_id_.c_str());
   // Deliberately do not stamp a pre-existing cached sensor state as 'new'.
-  ESP_LOGI(TAG, "[%s] Initialized: target=%.1f C, timeout=%" PRIu32 " ms, kp=%.3f, ki=%.4f; output OFF",
-           zone_id_.c_str(), target_temperature_, sensor_timeout_ms_, kp_, ki_);
+  ESP_LOGI(TAG, "[%s] Initialized: target=%.1f C, timeout=%" PRIu32 " ms, kp=%.3f, ki=%.4f, boost=%" PRIu32
+                " s; output OFF",
+           zone_id_.c_str(), target_temperature_, sensor_timeout_ms_, kp_, ki_, boost_time_ms_ / 1000);
 
   if (sensor_valid_binary_sensor_ != nullptr)
     sensor_valid_binary_sensor_->publish_initial_state(false);
@@ -51,6 +55,7 @@ void ZoneController::setup() {
     climate_->restore();
 }
 
+// Accepts fresh sensor samples or forces the zone safe when a value is invalid.
 void ZoneController::on_temperature_(float value) {
   if (!std::isfinite(value)) {
     sample_valid_ = false;
@@ -75,6 +80,7 @@ void ZoneController::on_temperature_(float value) {
     climate_->sync_from_zone();
 }
 
+// Recomputes sample age and latches sensor validity or timeout transitions.
 void ZoneController::update_sensor_input_(uint32_t now_ms) {
   sensor_age_ms_ = ever_received_ ? uint32_t(now_ms - last_sensor_update_ms_) : UINT32_MAX;
   const bool valid = temperature_sensor_ != nullptr && sample_valid_ &&
@@ -98,6 +104,7 @@ void ZoneController::update_sensor_input_(uint32_t now_ms) {
   sensor_valid_ = valid;
 }
 
+// Runs sensor supervision, boost timing, PI control, output scheduling, and diagnostics.
 void ZoneController::loop() {
   if (!setup_complete_)
     return;
@@ -106,18 +113,31 @@ void ZoneController::loop() {
   if (!sensor_valid_ || !enabled_) {
     stop_heating_(now_ms);
   } else {
+    if (boost_active_) {
+      if (!(current_temperature_ < target_temperature_)) {
+        end_boost_("setpoint reached");
+      } else if (now_ms - boost_start_ms_ >= boost_time_ms_) {
+        end_boost_("boost time elapsed; PI takes over");
+      }
+    }
     const uint32_t dt_ms = now_ms - last_control_ms_;
     if (control_due_ || dt_ms >= control_period_ms_) {
       // At startup/recovery/setpoint change, evaluate P without inventing elapsed I time.
-      run_pi_controller_(control_due_ ? 0 : std::min(dt_ms, control_period_ms_));
+      // During boost the output is forced ON, so I is frozen to avoid overshoot afterwards.
+      run_pi_controller_((control_due_ || boost_active_) ? 0 : std::min(dt_ms, control_period_ms_));
       control_due_ = false;
       last_control_ms_ = now_ms;
     }
-    handle_timeproportional_output_(now_ms);
+    if (boost_active_) {
+      apply_valve_state_(true, now_ms);
+    } else {
+      handle_timeproportional_output_(now_ms);
+    }
   }
   publish_periodic_(now_ms);
 }
 
+// Publishes optional heat-demand and sensor-age values at a fixed interval.
 void ZoneController::publish_periodic_(uint32_t now_ms) {
   if (now_ms - last_publish_ms_ < DIAGNOSTIC_PUBLISH_INTERVAL_MS)
     return;
@@ -128,7 +148,10 @@ void ZoneController::publish_periodic_(uint32_t now_ms) {
     sensor_age_sensor_->publish_state(sensor_age_ms_ == UINT32_MAX ? NAN : sensor_age_ms_ / 1000.0f);
 }
 
+// Resets heating state and forces the valve output off.
 void ZoneController::stop_heating_(uint32_t now_ms) {
+  if (boost_active_)
+    end_boost_("output forced OFF");
   heat_demand_ = 0.0f;
   integrator_ = 0.0f;
   pwm_on_time_ms_ = 0;
@@ -139,6 +162,7 @@ void ZoneController::stop_heating_(uint32_t now_ms) {
   apply_valve_state_(false, now_ms);
 }
 
+// Calculates bounded PI demand and prevents integral windup at output limits.
 void ZoneController::run_pi_controller_(uint32_t dt_ms) {
   const float error = target_temperature_ - current_temperature_;
   const float p_term = kp_ * error;
@@ -163,6 +187,7 @@ void ZoneController::run_pi_controller_(uint32_t dt_ms) {
            zone_id_.c_str(), current_temperature_, target_temperature_, p_term, integrator_, heat_demand_);
 }
 
+// Schedules the valve pulse for the active PWM period based on heat demand.
 void ZoneController::handle_timeproportional_output_(uint32_t now_ms) {
   if (heat_demand_ <= 0.0f || pwm_period_ms_ == 0) {
     pwm_started_ = false;
@@ -183,6 +208,7 @@ void ZoneController::handle_timeproportional_output_(uint32_t now_ms) {
   apply_valve_state_(elapsed_ms < pwm_on_time_ms_, now_ms);
 }
 
+// Converts demand to an ON duration and carries forward pulses below the minimum.
 uint32_t ZoneController::next_pwm_on_time_ms_() {
   // Pulses shorter than min_on_time_ms_ cannot move a slow actuator, so they are carried into later cycles.
   const float wanted_ms = (heat_demand_ / 100.0f) * static_cast<float>(pwm_period_ms_) + pwm_carry_ms_;
@@ -195,6 +221,7 @@ uint32_t ZoneController::next_pwm_on_time_ms_() {
   return static_cast<uint32_t>(on_ms);
 }
 
+// Applies a valve command and updates switch-count, diagnostics, and climate state.
 void ZoneController::apply_valve_state_(bool state, uint32_t now_ms) {
   if (state != valve_on_) {
     valve_on_ = state;
@@ -218,6 +245,7 @@ void ZoneController::apply_valve_state_(bool state, uint32_t now_ms) {
   }
 }
 
+// Validates and applies a setpoint change, resetting PI or starting boost as needed.
 void ZoneController::set_target_temperature(float temp) {
   if (!std::isfinite(temp)) {
     ESP_LOGW(TAG, "[%s] Ignoring non-finite setpoint", zone_id_.c_str());
@@ -227,11 +255,48 @@ void ZoneController::set_target_temperature(float temp) {
   if (target_temperature_ == temp)
     return;
   ESP_LOGI(TAG, "[%s] Setpoint: %.1f -> %.1f C", zone_id_.c_str(), target_temperature_, temp);
+  const float previous = target_temperature_;
   target_temperature_ = temp;
-  // A setpoint change is not a fault: keep the integrator and the running PWM cycle.
   control_due_ = true;
+  if (!enabled_ || !sensor_valid_)
+    return;
+  if (!(temp > current_temperature_)) {
+    // Setpoint already reached: no heating, and the PI starts from scratch.
+    if (boost_active_)
+      end_boost_("setpoint already reached");
+    integrator_ = 0.0f;
+    pwm_carry_ms_ = 0.0f;
+    pwm_on_time_ms_ = 0;
+    pwm_started_ = false;
+    ESP_LOGI(TAG, "[%s] Setpoint <= %.2f C: PI reset, no heating", zone_id_.c_str(), current_temperature_);
+  } else if (temp > previous) {
+    start_boost_if_below_setpoint_();
+  }
 }
 
+// Starts the configured immediate-ON interval when the enabled zone is below target.
+void ZoneController::start_boost_if_below_setpoint_() {
+  if (boost_time_ms_ == 0 || !enabled_ || !sensor_valid_ || !(current_temperature_ < target_temperature_))
+    return;
+  boost_active_ = true;
+  boost_start_ms_ = millis();
+  // The boost replaces the running PWM cycle; PI starts a fresh cycle when it takes over.
+  pwm_started_ = false;
+  pwm_on_time_ms_ = 0;
+  pwm_carry_ms_ = 0.0f;
+  ESP_LOGI(TAG, "[%s] Boost: output ON for up to %" PRIu32 " s (T=%.2f C, target=%.1f C)", zone_id_.c_str(),
+           boost_time_ms_ / 1000, current_temperature_, target_temperature_);
+}
+
+// Stops boost and schedules a fresh PI evaluation.
+void ZoneController::end_boost_(const char *reason) {
+  boost_active_ = false;
+  pwm_started_ = false;
+  control_due_ = true;
+  ESP_LOGI(TAG, "[%s] Boost ended: %s", zone_id_.c_str(), reason);
+}
+
+// Switches the zone between HEAT and OFF, starting boost or forcing output off.
 void ZoneController::set_enabled(bool enabled) {
   if (enabled_ == enabled)
     return;
@@ -239,11 +304,13 @@ void ZoneController::set_enabled(bool enabled) {
   ESP_LOGI(TAG, "[%s] Mode %s", zone_id_.c_str(), enabled ? "HEAT" : "OFF; output forced OFF");
   if (enabled) {
     control_due_ = true;
+    start_boost_if_below_setpoint_();
   } else {
     stop_heating_(millis());
   }
 }
 
+// Forces the valve off and clears the zone's active lifecycle state.
 void ZoneController::shutdown() {
   stop_heating_(millis());
   setup_complete_ = false;

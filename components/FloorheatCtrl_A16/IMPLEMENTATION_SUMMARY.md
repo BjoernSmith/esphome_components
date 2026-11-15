@@ -26,8 +26,8 @@ Valgfri ZoneClimate + native diagnostic entities
 
 - `error = target - measured`; `demand = clamp(Kp × error + integrator, 0, 100%)`.
 - Integrator opdateres i sekunder og har anti-windup.
-- Reference-YAML: `Kp=1.2`, `Ki=0.001 %/(K·s)`, loop 30 s, PWM 15 min, min. ON 5 min, timeout 15 min.
-- Setpointændring bevarer integrator og aktuel PWM-cyklus. Den nye PI-beregning udføres ved næste kontroliteration; PWM-duty opdateres på næste PWM-cyklus.
+- Reference-YAML: `Kp=100 %/K`, `Ki=0.028 %/(K·s)` (Ti ≈ 60 min), loop 30 s, PWM 15 min, min. ON 5 min, boost 30 min, timeout 15 min.
+- Setpoint hævet over rumtemperaturen (eller OFF → HEAT under setpoint): udgangen ON straks i op til `boost_time` med frosset I; derefter overtager PI med en ny PWM-cyklus. Setpoint sænket til ≤ rumtemperatur: I og carry-over nulstilles, udgang OFF. Sænket, men stadig over rumtemperatur: PI fortsætter med bevaret I.
 - OFF-mode, ugyldig måling eller timeout tvinger udgangen OFF med det samme og rydder integrator og carry-over.
 - Sensor-age måles fra reelle state-callbacks. En præ-cached værdi ved boot regnes ikke som ny frisk måling.
 - Failsafe er fast OFF; der findes ikke længere et konfigurerbart HEAT/OFF failsafe-valg.

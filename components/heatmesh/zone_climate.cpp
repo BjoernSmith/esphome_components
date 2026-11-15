@@ -5,8 +5,10 @@
 namespace esphome {
 namespace heatmesh {
 
+// Compares climate values while treating two NaN temperatures as unchanged.
 static bool same_value(float a, float b) { return (std::isnan(a) && std::isnan(b)) || a == b; }
 
+// Restores saved climate state or initializes HEAT mode from the zone's YAML setpoint.
 void ZoneClimate::restore() {
   auto restored = this->restore_state_();
   if (restored.has_value()) {
@@ -22,6 +24,7 @@ void ZoneClimate::restore() {
   this->publish_state();
 }
 
+// Forwards a climate request to the zone and publishes the accepted thermostat state.
 void ZoneClimate::control(const climate::ClimateCall &call) {
   auto mode = call.get_mode();
   if (mode.has_value())
@@ -37,6 +40,7 @@ void ZoneClimate::control(const climate::ClimateCall &call) {
   this->publish_state();
 }
 
+// Publishes the zone's current temperature and action when either has changed.
 void ZoneClimate::sync_from_zone() {
   const float current = zone_->get_current_temperature();
   const climate::ClimateAction action = this->zone_action_();
@@ -47,12 +51,14 @@ void ZoneClimate::sync_from_zone() {
   this->publish_state();
 }
 
+// Derives climate action from OFF mode and the zone's commanded valve state.
 climate::ClimateAction ZoneClimate::zone_action_() const {
   if (this->mode == climate::CLIMATE_MODE_OFF)
     return climate::CLIMATE_ACTION_OFF;
   return zone_->get_valve_state() ? climate::CLIMATE_ACTION_HEATING : climate::CLIMATE_ACTION_IDLE;
 }
 
+// Advertises the climate features, modes, and setpoint range supported by this entity.
 climate::ClimateTraits ZoneClimate::traits() {
   auto traits = climate::ClimateTraits();
   traits.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE | climate::CLIMATE_SUPPORTS_ACTION);

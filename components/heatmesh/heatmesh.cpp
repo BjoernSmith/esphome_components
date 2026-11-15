@@ -7,6 +7,7 @@ namespace heatmesh {
 static const char *const TAG = "heatmesh";
 HeatmeshComponent *HeatmeshComponent::instance_ = nullptr;
 
+// Initializes each zone once after registering this component as the active instance.
 void HeatmeshComponent::setup() {
   if (setup_complete_)
     return;
@@ -18,16 +19,19 @@ void HeatmeshComponent::setup() {
   ESP_LOGI(TAG, "HeatMesh setup complete; waiting for new temperature publications");
 }
 
+// Runs one control-loop iteration for every configured zone.
 void HeatmeshComponent::loop() {
   for (auto *zone : zones_)
     zone->loop();
 }
 
+// Invokes each zone's safe shutdown path.
 void HeatmeshComponent::on_shutdown() {
   for (auto *zone : zones_)
     zone->shutdown();
 }
 
+// Writes the configured zone count and current state to the ESPHome log.
 void HeatmeshComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "HeatMesh v0.1.2: %zu zones; failsafe=output OFF", zones_.size());
   for (const auto *zone : zones_) {
@@ -38,6 +42,7 @@ void HeatmeshComponent::dump_config() {
   }
 }
 
+// Returns the zone matching the requested ID, or nullptr if it is not configured.
 ZoneController *HeatmeshComponent::get_zone(const std::string &zone_id) {
   for (auto *zone : zones_) {
     if (zone->get_zone_id() == zone_id)

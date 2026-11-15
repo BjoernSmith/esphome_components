@@ -34,6 +34,7 @@ CONF_KI = "ki"
 CONF_PERIOD_MS = "period_ms"
 CONF_PWM_PERIOD_MIN = "pwm_period_min"
 CONF_MIN_ON_TIME = "min_on_time"
+CONF_BOOST_TIME = "boost_time"
 CONF_CLIMATE = "climate"
 CONF_HEAT_DEMAND = "heat_demand"
 CONF_SENSOR_AGE = "sensor_age"
@@ -53,12 +54,14 @@ _BINARY_SENSORS = {
 }
 
 
+# Rejects non-finite numeric values during ESPHome configuration validation.
 def _finite(value):
     if not math.isfinite(value):
         raise cv.Invalid("Value must be finite")
     return value
 
 
+# Validates a positive sensor timeout representable by the controller's millisecond counter.
 def _sensor_timeout(value):
     value = cv.positive_time_period_milliseconds(value)
     if not 0 < value.total_milliseconds <= 0x7FFFFFFF:
@@ -66,6 +69,7 @@ def _sensor_timeout(value):
     return value
 
 
+# Ensures zones have unique IDs and valves, and compatible timing parameters.
 def _validate_zones(zones):
     if not zones:
         raise cv.Invalid("Configure at least one zone")
@@ -84,6 +88,9 @@ def _validate_zones(zones):
         valves.add(valve_id)
         if zone[CONF_MIN_ON_TIME].total_milliseconds >= zone[CONF_PWM_PERIOD_MIN] * 60000:
             raise cv.Invalid(f"min_on_time must be shorter than pwm_period_min in zone {name}")
+        boost_ms = zone[CONF_BOOST_TIME].total_milliseconds
+        if 0 < boost_ms < zone[CONF_MIN_ON_TIME].total_milliseconds:
+            raise cv.Invalid(f"boost_time must be 0s or at least min_on_time in zone {name}")
     return zones
 
 
@@ -97,12 +104,19 @@ ZONE_SCHEMA = cv.Schema(
         cv.Optional(CONF_SETPOINT, default=21.0): cv.All(cv.float_range(min=5.0, max=30.0), _finite),
         cv.Optional(CONF_SENSOR_TIMEOUT, default="15min"): _sensor_timeout,
         # Gains retain the original units: percentage points / K, and / (K*s).
-        cv.Optional(CONF_KP, default=1.0): cv.All(cv.float_range(min=0.1, max=10.0), _finite),
-        cv.Optional(CONF_KI, default=0.001): cv.All(cv.float_range(min=0.0, max=1.0), _finite),
+        # Default kp=100: 1 K below setpoint = 100 % demand. ki=0.028: Ti = kp/ki ~ 60 min.
+        cv.Optional(CONF_KP, default=100.0): cv.All(cv.float_range(min=0.1, max=1000.0), _finite),
+        cv.Optional(CONF_KI, default=0.028): cv.All(cv.float_range(min=0.0, max=1.0), _finite),
         cv.Optional(CONF_PERIOD_MS, default=30000): cv.int_range(min=1000, max=120000),
         cv.Optional(CONF_PWM_PERIOD_MIN, default=15): cv.int_range(min=5, max=60),
         # Pulses shorter than this are carried into later PWM cycles.
         cv.Optional(CONF_MIN_ON_TIME, default="5min"): cv.positive_time_period_milliseconds,
+        # Forced ON after raising the setpoint above the room temperature (or OFF -> HEAT
+        # below setpoint), before PI takes over. 0s disables.
+        cv.Optional(CONF_BOOST_TIME, default="30min"): cv.All(
+            cv.positive_time_period_milliseconds,
+            cv.Range(max=cv.TimePeriod(hours=24)),
+        ),
         cv.Optional(CONF_CLIMATE): climate.climate_schema(ZoneClimate),
         cv.Optional(CONF_HEAT_DEMAND): sensor.sensor_schema(
             unit_of_measurement=UNIT_PERCENT,
@@ -142,6 +156,7 @@ CONFIG_SCHEMA = cv.Schema(
 ).extend(cv.COMPONENT_SCHEMA)
 
 
+# Generates the component and zone objects, then connects their optional entities.
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
@@ -163,6 +178,7 @@ async def to_code(config):
             zone_conf[CONF_PERIOD_MS],
             zone_conf[CONF_PWM_PERIOD_MIN],
             zone_conf[CONF_MIN_ON_TIME].total_milliseconds,
+            zone_conf[CONF_BOOST_TIME].total_milliseconds,
         )
         cg.add(var.add_zone(zone))
 

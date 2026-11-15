@@ -16,11 +16,12 @@ heatmesh:
       valve: room_valve
       target_temperature: 21.0
       sensor_timeout: 15min
-      kp: 1.2
-      ki: 0.001
+      kp: 100
+      ki: 0.028
       period_ms: 30000
       pwm_period_min: 15
       min_on_time: 5min
+      boost_time: 30min
       climate:
         name: "Living Room"
       heat_demand:
@@ -43,21 +44,23 @@ Påkrævet per zone: `zone_id`, `temperature_sensor`, `valve`. Kontrolparametre 
 |---|---:|---|
 | `target_temperature` | 21 °C | Fallback ved første climate-opstart; 5–30 °C |
 | `sensor_timeout` | 15 min | Positiv varighed, maks. 2,147,483,647 ms |
-| `kp` | 1.0 | 0.1–10.0, procentpoint/K |
-| `ki` | 0.001 | 0–1, procentpoint/(K·s) |
+| `kp` | 100 | 0.1–1000, procentpoint/K (100 = 1 K under setpoint giver 100 %) |
+| `ki` | 0.028 | 0–1, procentpoint/(K·s) |
 | `period_ms` | 30,000 | 1,000–120,000 ms |
 | `pwm_period_min` | 15 | 5–60 min |
 | `min_on_time` | 5 min | Positiv; skal være kortere end PWM-perioden |
+| `boost_time` | 30 min | `0s` slår boost fra; ellers mindst `min_on_time` |
 
-I reference-YAML'en er `kp: 1.2`, `ki: 0.001`, dvs. en nominelt beregnet integraltid `Kp/Ki` på ca. 20 min. Det er ikke en endeligt indreguleret værdi.
+Default og reference-YAML: `kp: 100`, `ki: 0.028`, dvs. fuld demand ved 1 K under setpoint og en integraltid `Kp/Ki` på ca. 60 min. Det er startværdier, ikke endeligt indreguleret på gulvet.
 
 ## Regulering og failsafe
 
-- PI: `error = target - temperature`; output begrænses til 0–100 % med anti-windup.
-- Positive demand konverteres til én ON-puls per PWM-periode.
+- PI: `error = target - temperature`; output begrænses til 0–100 % med anti-windup. Integratoren vokser ikke, mens P alene giver ≥100 % (≥1 K under setpoint med defaults).
+- Positive demand konverteres til én ON-puls per PWM-periode; under 1 K fejl giver P delvis demand, og I bygger op, så små fejl giver en puls inden for ca. en time.
 - Beregnede pulser kortere end `min_on_time` akkumuleres (carry-over) til senere cyklusser.
-- Setpointændring beholder integrator og aktuel PWM-cyklus.
-- Climate OFF, ikke-finite måling eller sensor-timeout tvinger udgangen OFF straks og nulstiller integrator/carry-over.
+- **Boost:** Hæves setpoint over rumtemperaturen, eller skiftes OFF → HEAT under setpoint, tændes udgangen straks i op til `boost_time`. I er frosset under boost; derefter starter PI en ny PWM-cyklus. Boost stopper tidligt, hvis setpoint nås.
+- Sænkes setpoint til ≤ rumtemperaturen, nulstilles I og carry-over, og udgangen slukker. Sænkes det, men stadig over rumtemperaturen, fortsætter PI med bevaret I.
+- Climate OFF, ikke-finite måling eller sensor-timeout tvinger udgangen OFF straks, afbryder boost og nulstiller integrator/carry-over.
 - Sensoren skal publicere en ny måling efter opstart; en cached state alene tæller ikke som frisk.
 - Failsafe er fast output OFF, ikke en konfigurerbar HEAT/OFF-indstilling.
 

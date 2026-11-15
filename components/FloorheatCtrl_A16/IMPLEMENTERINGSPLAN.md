@@ -19,14 +19,15 @@
 | Parameter | Aktuel værdi | Bemærkning |
 |---|---:|---|
 | Sensor timeout | 15 min | Udgang OFF ved stale/ugyldig måling |
-| Kp | 1.2 %/K | Bench-værdi; ikke indreguleret på gulvvarme |
-| Ki | 0.001 %/(K·s) | Med Kp 1.2 svarer `Kp/Ki` til ca. 20 min |
+| Kp | 100 %/K | 1 K under setpoint = 100 % demand; startværdi, ikke indreguleret |
+| Ki | 0.028 %/(K·s) | `Kp/Ki` ≈ 60 min integraltid |
 | PI-opdatering | 30 s | |
 | PWM-periode | 15 min | |
 | Min. ventil-ON-puls | 5 min | Kortere beregnet tid akkumuleres til senere PWM-cyklusser |
+| Boost | 30 min | Udgang ON straks ved hævet setpoint over rumtemperatur eller OFF → HEAT under setpoint |
 | Setpoint ved første boot | 21.0 °C | Climate gemmer efterfølgende sit setpoint lokalt |
 
-Værdierne er en testkonfiguration, ikke dokumentation for endelig tuning. OFF-mode og sensorfejl stopper udgangen straks og nulstiller PI-integrator samt PWM carry-over. Setpointændring nulstiller ikke integratoren og ændrer ikke den allerede igangværende PWM-cyklus.
+Værdierne er en testkonfiguration, ikke dokumentation for endelig tuning. OFF-mode og sensorfejl stopper udgangen straks og nulstiller PI-integrator samt PWM carry-over. Hævet setpoint over rumtemperaturen starter boost; sænket setpoint til ≤ rumtemperaturen nulstiller integrator og carry-over.
 
 ## Gennemført og verificeret
 

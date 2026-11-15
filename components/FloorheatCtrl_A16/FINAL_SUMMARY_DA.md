@@ -27,7 +27,7 @@ Den nye climate-entitet tilbyder HEAT/OFF, aktuel temperatur, setpoint og action
 
 ## Startværdier i YAML
 
-`Kp=1.2`, `Ki=0.001 %/(K·s)`, PI-loop 30 s, PWM 15 min, minimum ON 5 min og sensortimeout 15 min. `Kp/Ki` giver ca. 20 min integraltid for disse værdier. Det er bench-indstillinger, ikke afsluttet gulvvarmetuning.
+`Kp=100 %/K`, `Ki=0.028 %/(K·s)`, PI-loop 30 s, PWM 15 min, minimum ON 5 min, boost 30 min og sensortimeout 15 min. 1 K under setpoint giver 100 % demand; `Kp/Ki` giver ca. 60 min integraltid. Det er startværdier, ikke afsluttet gulvvarmetuning.
 
 Lav demand kan blive akkumuleret over flere PWM-perioder, før der sendes en ON-puls på mindst 5 minutter. Mål først telestatens reelle åbne-/lukketid, og ændr derefter minimumspuls/periode ud fra målinger.
 

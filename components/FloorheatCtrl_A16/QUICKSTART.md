@@ -30,7 +30,7 @@ Ved første climate-start uden gemt climate-state er startmode HEAT og setpoint 
 ## Test i denne rækkefølge
 
 1. **Sensor:** Vent på en ny BLE-måling. `Sensor Valid` skal blive ON; sensor-age skal begynde at vise sekunder.
-2. **HEAT:** Med testlast og rumtemperatur under setpoint skal demand være positiv. Udgangen kan stadig være OFF, indtil minimumspuls/carry-over giver en tilstrækkelig PWM-puls.
+2. **HEAT:** Med testlast: hæv setpoint over rumtemperaturen. Udgangen skal tænde straks (log `Boost: output ON`) og forblive ON i op til `boost_time` (30 min), hvorefter PI overtager. Sænk setpoint til under rumtemperaturen; udgangen skal slukke og loggen vise `PI reset`.
 3. **OFF:** Sæt climate til OFF. Den elektriske udgang skal slukke straks; sensorovervågningen fortsætter.
 4. **Restore:** Sæt et test-setpoint og OFF, genstart, og bekræft at begge climate-værdier gendannes.
 5. **Timeout:** Stop BLE-opdateringer. Efter `sensor_timeout: 15min` forventes `Sensor Valid` OFF og valve state OFF. Fejl slukker straks; den nye gyldige måling genaktiverer HEAT-regulering, hvis climate er i HEAT.

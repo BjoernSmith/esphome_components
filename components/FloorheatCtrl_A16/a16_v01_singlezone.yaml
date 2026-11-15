@@ -5,8 +5,16 @@
 substitutions:
   sensor_01_friendly_name: "Badeværelse"
   sensor_01_mac_address: "A4:C1:38:14:28:EA"
-  zone_id: test_living_room
-  zone_name: "Test Zone"
+  sensor_02_friendly_name: "Køkken"
+  sensor_02_mac_address: "A4:C1:38:BA:4E:58"
+  sensor_03_friendly_name: "Bryggers"
+  sensor_03_mac_address: "A4:C1:38:09:7B:7B"
+  zone_id_1: test_bathroom_room
+  zone_name_1: "Test Zone1"
+  zone_id_2: test_kitchen_room
+  zone_name_2: "Test Zone2"
+  zone_id_3: test_bryggers_room
+  zone_name_3: "Test Zone3"
 
 esphome:
   name: floorheatctrl-v01
@@ -76,6 +84,28 @@ switch:
       number: 0
       inverted: true
       mode: OUTPUT
+  - platform: gpio
+    id: test_valve_y02
+    name: "Test Valve (Y02)"
+    # HeatMesh owns this output. Avoid a second controller via the HA switch UI.
+    internal: true
+    restore_mode: ALWAYS_OFF
+    pin:
+      pcf8574: outputs_1_8
+      number: 1
+      inverted: true
+      mode: OUTPUT
+  - platform: gpio
+    id: test_valve_y03
+    name: "Test Valve (Y03)"
+    # HeatMesh owns this output. Avoid a second controller via the HA switch UI.
+    internal: true
+    restore_mode: ALWAYS_OFF
+    pin:
+      pcf8574: outputs_1_8
+      number: 2
+      inverted: true
+      mode: OUTPUT
 
 sensor:
   - platform: bthome_mithermometer
@@ -84,45 +114,150 @@ sensor:
     # installed ESPHome version: bindkey: !secret sensor_01_bindkey
     temperature:
       name: "${sensor_01_friendly_name} Temp"
-      id: test_zone_temp
+      id: test_zone1_temp
       # No heartbeat, timeout-generated values or repeated template values here:
       # the component's freshness timeout follows real sensor publications.
     humidity:
       name: "${sensor_01_friendly_name} Humidity"
-      id: test_zone_humidity
+      id: test_zone1_humidity
     battery_level:
       name: "${sensor_01_friendly_name} Battery"
-      id: test_zone_battery
+      id: test_zone1_battery
+
+  - platform: bthome_mithermometer
+    mac_address: ${sensor_02_mac_address}
+    # Only when encryption is enabled on the sensor, and supported by your
+    # installed ESPHome version: bindkey: !secret sensor_02_bindkey
+    temperature:
+      name: "${sensor_02_friendly_name} Temp"
+      id: test_zone2_temp
+      # No heartbeat, timeout-generated values or repeated template values here:
+      # the component's freshness timeout follows real sensor publications.
+    humidity:
+      name: "${sensor_02_friendly_name} Humidity"
+      id: test_zone2_humidity
+    battery_level:
+      name: "${sensor_02_friendly_name} Battery"
+      id: test_zone2_battery
+    
+  - platform: bthome_mithermometer
+    mac_address: ${sensor_03_mac_address}
+    # Only when encryption is enabled on the sensor, and supported by your
+    # installed ESPHome version: bindkey: !secret sensor_03_bindkey
+    temperature:
+      name: "${sensor_03_friendly_name} Temp"
+      id: test_zone3_temp
+      # No heartbeat, timeout-generated values or repeated template values here:
+      # the component's freshness timeout follows real sensor publications.
+    humidity:
+      name: "${sensor_03_friendly_name} Humidity"
+      id: test_zone3_humidity
+    battery_level:
+      name: "${sensor_03_friendly_name} Battery"
+      id: test_zone3_battery
+
 
 heatmesh:
   id: heatmesh_controller
   zones:
-    - zone_id: ${zone_id}
-      temperature_sensor: test_zone_temp
+    - zone_id: ${zone_id_1}
+      temperature_sensor: test_zone1_temp
       valve: test_valve_y01
       # Only used until the thermostat has stored a setpoint in flash.
       target_temperature: 21.0
       sensor_timeout: 15min
       # Bench-test values, not yet validated on the real floor.
-      # kp: percentage points / K; ki: percentage points / (K * second), so Ti = kp / ki = 20 min.
-      kp: 1.2
-      ki: 0.001
+      # kp: percentage points / K -> 1 K below setpoint = 100 % demand.
+      # ki: percentage points / (K * second), so Ti = kp / ki = ~60 min.
+      kp: 100
+      ki: 0.028
       period_ms: 30000
       pwm_period_min: 15
       min_on_time: 5min
+      # Setpoint raised above room temperature (or OFF -> HEAT below setpoint):
+      # output ON at once for up to this time, then PI takes over.
+      boost_time: 30min
       # Home Assistant entities. All are optional; regulation runs without them.
       climate:
         # Thermostat: current/target temperature, HEAT/OFF and heating/idle.
         # Mode and setpoint are restored after reboot.
-        name: "${zone_name}"
+        name: "${zone_name_1}"
       heat_demand:
-        name: "${zone_name} Heat Demand"
+        name: "${zone_name_1} Heat Demand"
       sensor_age:
-        name: "${zone_name} Sensor Age"
+        name: "${zone_name_1} Sensor Age"
       sensor_valid:
-        name: "${zone_name} Sensor Valid"
+        name: "${zone_name_1} Sensor Valid"
       valve_state:
         # Electrical ON/OFF command, not actual mechanical valve position.
-        name: "${zone_name} Valve State"
+        name: "${zone_name_1} Valve State"
       valve_switch_count:
-        name: "${zone_name} Valve Switches"
+        name: "${zone_name_1} Valve Switches"
+        
+    - zone_id: ${zone_id_2}
+      temperature_sensor: test_zone2_temp
+      valve: test_valve_y02
+      # Only used until the thermostat has stored a setpoint in flash.
+      target_temperature: 21.0
+      sensor_timeout: 15min
+      # Bench-test values, not yet validated on the real floor.
+      # kp: percentage points / K -> 1 K below setpoint = 100 % demand.
+      # ki: percentage points / (K * second), so Ti = kp / ki = ~60 min.
+      kp: 100
+      ki: 0.028
+      period_ms: 30000
+      pwm_period_min: 15
+      min_on_time: 5min
+      # Setpoint raised above room temperature (or OFF -> HEAT below setpoint):
+      # output ON at once for up to this time, then PI takes over.
+      boost_time: 30min
+      # Home Assistant entities. All are optional; regulation runs without them.
+      climate:
+        # Thermostat: current/target temperature, HEAT/OFF and heating/idle.
+        # Mode and setpoint are restored after reboot.
+        name: "${zone_name_2}"
+      heat_demand:
+        name: "${zone_name_2} Heat Demand"
+      sensor_age:
+        name: "${zone_name_2} Sensor Age"
+      sensor_valid:
+        name: "${zone_name_2} Sensor Valid"
+      valve_state:
+        # Electrical ON/OFF command, not actual mechanical valve position.
+        name: "${zone_name_2} Valve State"
+      valve_switch_count:
+        name: "${zone_name_2} Valve Switches"
+      
+    - zone_id: ${zone_id_3}
+      temperature_sensor: test_zone3_temp
+      valve: test_valve_y03
+      # Only used until the thermostat has stored a setpoint in flash.
+      target_temperature: 21.0
+      sensor_timeout: 15min
+      # Bench-test values, not yet validated on the real floor.
+      # kp: percentage points / K -> 1 K below setpoint = 100 % demand.
+      # ki: percentage points / (K * second), so Ti = kp / ki = ~60 min.
+      kp: 100
+      ki: 0.028
+      period_ms: 30000
+      pwm_period_min: 15
+      min_on_time: 5min
+      # Setpoint raised above room temperature (or OFF -> HEAT below setpoint):
+      # output ON at once for up to this time, then PI takes over.
+      boost_time: 30min
+      # Home Assistant entities. All are optional; regulation runs without them.
+      climate:
+        # Thermostat: current/target temperature, HEAT/OFF and heating/idle.
+        # Mode and setpoint are restored after reboot.
+        name: "${zone_name_3}"
+      heat_demand:
+        name: "${zone_name_3} Heat Demand"
+      sensor_age:
+        name: "${zone_name_3} Sensor Age"
+      sensor_valid:
+        name: "${zone_name_3} Sensor Valid"
+      valve_state:
+        # Electrical ON/OFF command, not actual mechanical valve position.
+        name: "${zone_name_3} Valve State"
+      valve_switch_count:
+        name: "${zone_name_3} Valve Switches"

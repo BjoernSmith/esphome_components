@@ -7,6 +7,7 @@ namespace heatmesh {
 
 static const char *const TAG = "heatmesh.sensor_mgr";
 
+// Registers a sensor and timestamps each finite state published by it.
 void SensorManager::register_sensor(const std::string &sensor_id, sensor::Sensor *sensor) {
   if (sensor == nullptr || sensors_.count(sensor_id) != 0) {
     ESP_LOGW(TAG, "Cannot register null/duplicate sensor: %s", sensor_id.c_str());
@@ -15,6 +16,7 @@ void SensorManager::register_sensor(const std::string &sensor_id, sensor::Sensor
   ManagedSensor entry;
   entry.sensor = sensor;
   sensors_.emplace(sensor_id, entry);
+  // Updates the cached reading whenever ESPHome publishes a new sensor value.
   sensor->add_on_state_callback([this, sensor_id](float value) {
     auto &sample = sensors_.at(sensor_id);
     sample.last_value = value;
@@ -24,6 +26,7 @@ void SensorManager::register_sensor(const std::string &sensor_id, sensor::Sensor
   });
 }
 
+// Returns the cached reading and current age, or an invalid default if unavailable.
 SensorManager::SensorReading SensorManager::get_reading(const std::string &sensor_id) {
   SensorReading result;
   auto it = sensors_.find(sensor_id);
@@ -37,6 +40,7 @@ SensorManager::SensorReading SensorManager::get_reading(const std::string &senso
   return result;
 }
 
+// Checks that a registered sensor has a valid sample younger than the timeout.
 bool SensorManager::is_fresh(const std::string &sensor_id, uint32_t timeout_ms) {
   const auto reading = get_reading(sensor_id);
   return reading.valid && reading.age_ms < timeout_ms;

@@ -19,9 +19,13 @@ class SensorManager {
     uint32_t sample_time_ms{0};
     bool valid{false};  // Finite sample received, not a freshness guarantee.
   };
+  // Registers a sensor and records each finite publication's value and timestamp.
   void register_sensor(const std::string &sensor_id, sensor::Sensor *sensor);
-  void loop() {}  // Compatibility: callbacks, not polling, update sample timestamps.
+  // Kept for compatibility; registered sensor callbacks update readings directly.
+  void loop() {}
+  // Returns the latest reading and its age, or the default invalid reading if absent.
   SensorReading get_reading(const std::string &sensor_id);
+  // Reports whether a registered sensor has a valid sample younger than the timeout.
   bool is_fresh(const std::string &sensor_id, uint32_t timeout_ms);
 
  private:
