@@ -1,49 +1,63 @@
-# HeatMesh v0.1.2 — deployment og sikker test
+# HeatMesh v0.2.0 — deployment og test
 
-Denne guide gælder [a16_v01_singlezone.yaml](a16_v01_singlezone.yaml), én BTHome v2-sensor og én KC868-A16-zone. Den seneste climate-/entity-version er softwaretestet, men mangler fysisk A16-validering.
+Denne guide gælder [a16_heatmesh.yaml](a16_heatmesh.yaml): KC868-A16 med tre BTHome v2-sensorer og tre zoner.
+
+| Zone (`zone_id`) | Climate-navn | Udgang | PCF8574 `0x24` |
+|---|---|---|---|
+| `bathroom_room` | Badeværelse | Y01 | kanal 0, inverteret |
+| `kitchen_room` | Køkken | Y02 | kanal 1, inverteret |
+| `bryggers_room` | Bryggers | Y03 | kanal 2, inverteret |
 
 ## Før du begynder
 
-- ESPHome 2026.10.2 anbefales; denne version blev brugt til den dokumenterede ESP32-build.
-- Konfigurér `wifi_ssid`, `wifi_password` og `floorheatctrl_v01__encryption_key` i Home Assistant `secrets.yaml`.
-- Bekræft sensorens MAC og BTHome v2-udsendelse. Eksempel-YAML bruger `A4:C1:38:14:28:EA`.
-- Kontrollér komponentens GitHub-version: YAML'en henter `github://BjoernSmith/esphome_components@main`. Commit og push komponentændringer, før du bygger fra HA eller en anden PC.
-- Hav ufarlig testlast klar. Tilslut ikke telestaten, før output, polaritet, spænding og strøm er bekræftet.
+- Firmwaren er bygget og kørt med ESPHome 2026.10.2.
+- Konfigurér `wifi_ssid`, `wifi_password` og `floorheatctrl_v01__encryption_key` i ESPHome `secrets.yaml`. Secret-navnet er bevaret fra v0.1, så den eksisterende API-nøgle fortsat passer.
+- Kontrollér sensor-MAC'erne i `substitutions` (`sensor_01_mac_address` … `sensor_03_mac_address`), og at sensorerne udsender BTHome v2.
+- YAML'en henter komponenten fra `github://BjoernSmith/esphome_components@main` med `refresh: 0s`. Commit og push komponentændringer, før du bygger fra HA eller en anden PC.
+- `esphome.name` er fortsat `floorheatctrl-v01`; det er hostname, OTA-mål og HA-enhed. Ændr det ikke uden at planlægge ny adoption i HA.
+- Brug ufarlig testlast, når ny udgangsadfærd testes første gang.
 
 ## Byg og flash
 
-1. Åbn YAML'en i ESPHome og kontrollér secrets, sensor-MAC, zone- og entity-navne.
-2. Compile. En vellykket build viser `Successfully compiled program`.
-3. Flash/OTA til A16 efter din normale ESPHome-procedure.
-4. Kontrollér logs for `HeatMesh v0.1.2`, `Zone ... Initialized` og `Sensor valid; local control enabled`.
+1. Åbn YAML'en i ESPHome og kontrollér secrets, sensor-MAC'er samt zone- og entity-navne.
+2. Compile; en vellykket build viser `Successfully compiled program`.
+3. Flash/OTA til A16.
+4. Kontrollér logs for `HeatMesh v0.2.0: setup starting; 3 zones configured`, `[<zone_id>] Initialized` og derefter `[<zone_id>] Sensor valid; local control enabled` for hver zone.
 
 ## Home Assistant
 
-Når sensoren har leveret en frisk måling, forvent:
+Per zone (Badeværelse, Køkken, Bryggers):
 
-- Climate `Test Zone`: HEAT/OFF, aktuel temperatur, setpoint og action (heating/idle).
-- `Test Zone Heat Demand` (%), `Test Zone Sensor Age` (s), `Test Zone Sensor Valid`, `Test Zone Valve State`, `Test Zone Valve Switches`.
-- Zoneventilens GPIO-switch er `internal`; HeatMesh ejer udgangen. Undlad at oprette en anden kontrolvej til samme ventil.
+- Climate `<zone>`: HEAT/OFF, aktuel temperatur, setpoint og action (heating/idle/off).
+- `<zone> Heat Demand` (%), `<zone> Sensor Age` (s), `<zone> Sensor Valid`, `<zone> Valve State` og `<zone> Valve Switches`.
+- BLE-sensorernes egne entiteter: `<sensor> Temp`, `<sensor> Humidity` og `<sensor> Battery`.
+- Ventilernes GPIO-switches er `internal`; HeatMesh ejer udgangene. Opret ikke en anden kontrolvej til samme ventil.
 
-Ved første climate-start uden gemt climate-state er startmode HEAT og setpoint `target_temperature: 21.0`. Senere gendannes climate-mode og setpoint fra ESPHome restore-state. Tidligere setpoint fra YAML `number` migreres ikke.
+Ved første climate-start uden gemt state er mode HEAT og setpoint `target_temperature: 21.0`. Senere gendannes mode og setpoint per zone fra ESPHome restore-state.
+
+`friendly_name` er ændret fra `FloorHeat_v01_SingleZone` til `FloorHeat A16`. Enhedens visningsnavn i HA ændres; eksisterende entity-id'er bevares.
 
 ## Test i denne rækkefølge
 
-1. **Sensor:** Vent på en ny BLE-måling. `Sensor Valid` skal blive ON; sensor-age skal begynde at vise sekunder.
-2. **HEAT:** Med testlast: hæv setpoint over rumtemperaturen. Udgangen skal tænde straks (log `Boost: output ON`) og forblive ON i op til `boost_time` (30 min), hvorefter PI overtager. Sænk setpoint til under rumtemperaturen; udgangen skal slukke og loggen vise `PI reset`.
-3. **OFF:** Sæt climate til OFF. Den elektriske udgang skal slukke straks; sensorovervågningen fortsætter.
-4. **Restore:** Sæt et test-setpoint og OFF, genstart, og bekræft at begge climate-værdier gendannes.
-5. **Timeout:** Stop BLE-opdateringer. Efter `sensor_timeout: 15min` forventes `Sensor Valid` OFF og valve state OFF. Fejl slukker straks; den nye gyldige måling genaktiverer HEAT-regulering, hvis climate er i HEAT.
-6. **HA-frakobling:** Afbryd HA/API uden at afbryde controllerens drift; bekræft lokal regulering fortsætter.
-7. **Fysisk ventil:** Først når testlast, polaritet og effekt er bekræftet, tilslut telestat. Mål start-/holdestrøm og åbne-/lukketid; brug det til at vurdere `min_on_time`.
+Punkt 1–4 er grundfunktioner, der allerede kører; gentag dem efter ny firmware. Punkt 5–10 er åbne v0.2-tests.
 
-YAML antager Y01 via PCF8574 `0x24`, kanal 0, inverteret. Bekræft denne mapping på den faktiske board-revision, før spænding sættes på lasten.
+1. **Sensorer:** Vent på nye BLE-målinger. `Sensor Valid` skal blive ON for hver zone, og `Sensor Age` skal vise sekunder.
+2. **Boost:** Hæv setpoint over rumtemperaturen. Udgangen tænder straks (`Boost: output ON for up to 1800 s`) og forbliver ON i op til `boost_time` (30 min). Når setpoint nås, slutter boost først, når udgangen har været ON i mindst `min_on_time` (5 min); loggen viser `Boost ended: setpoint reached` eller `Boost ended: boost time elapsed; PI takes over`.
+3. **Sænk setpoint:** Sænk setpoint til rumtemperaturen eller derunder. Udgangen slukker straks, og loggen viser `Setpoint <= ... C: PI reset, no heating`.
+4. **OFF:** Sæt climate til OFF. Udgangen slukker straks (`Mode OFF; output forced OFF`); sensorovervågningen fortsætter.
+5. **Boost-hold tæt på setpoint:** Med rumtemperatur lige under det ønskede setpoint (fx 20,9 °C), hæv setpoint fra under rumtemperaturen til lige over (fx 20,5 → 21,0 °C). Boost tænder udgangen, og den må ikke slukke igen før 5 min, selv om målingen når setpoint tidligere.
+6. **Restore:** Sæt forskellige setpoints og én zone i OFF, genstart, og bekræft at mode og setpoint gendannes per zone.
+7. **Timeout og recovery:** Stop én sensors BLE-opdateringer. Efter `sensor_timeout: 15min` forventes `Sensor Valid` OFF og udgang OFF for den zone, mens de andre zoner regulerer videre. Den næste gyldige måling genaktiverer reguleringen, hvis climate er i HEAT.
+8. **HA-frakobling:** Afbryd HA/API uden at afbryde controllerens strøm; lokal regulering skal fortsætte, og enheden må ikke genstarte (`reboot_timeout: 0s`).
+9. **Min. OFF-tid:** Sæt midlertidigt fx `min_off_time: 10min` i én zone. Efter en OFF-overgang skal næste PWM-start vente (`Waiting for minimum OFF time before starting PWM`); boost må tænde straks, og OFF/sensorfejl skal stadig slukke straks.
+10. **Telestat:** Mål start-/holdestrøm og åbne-/lukketid; brug målingerne til at vurdere `min_on_time`, `min_off_time` og PWM-perioden.
 
 ## Hvis noget ikke passer
 
 - Ingen `Sensor Valid`: kontrollér MAC, sensorens BTHome-version, BLE-rækkevidde og logs.
-- Ingen output: kontrollér mode (HEAT), sensor-valid, demand, PWM-periode og carry-over. Lav demand kan vente længe på en ≥5 min puls.
-- Compilefejl på `heatmesh`: kontrollér at GitHub `main` indeholder den samme version af component som YAML'en forventer.
-- Gammel climate-/number-entitet vises stadig i HA: fjern den forældede entitet efter at den nye climate er valideret; slet ikke sensorens eksisterende entity uden at have overvejet historikken.
+- Ingen output: kontrollér mode (HEAT), `Sensor Valid`, demand, PWM-periode og carry-over. Lav demand kan vente længe på en puls på mindst 5 min.
+- Udgangen er stadig ON, selv om setpoint er nået: forventet i op til `min_on_time`, hvis boost netop har tændt udgangen.
+- Compilefejl på `heatmesh`: kontrollér, at GitHub `main` indeholder den komponentversion, YAML'en forventer.
+- Forældede `Test Zone`-entiteter fra tidligere firmware i HA: fjern dem manuelt, når de nye zoner er valideret.
 
 Log testresultater i [VERIFICATION_CHECKLIST.md](VERIFICATION_CHECKLIST.md).

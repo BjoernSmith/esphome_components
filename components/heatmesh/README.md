@@ -1,7 +1,7 @@
 # HeatMesh ESPHome External Component
 
-**Implementationsversion:** 0.1.2 (firmware/config label; manifest metadata remains 0.1.0)
-**Status:** Tre zoner er afprøvet på A16. Udvidede genstarts- og HA-frakoblingstests afventer; minimum OFF-tid er endnu ikke fysisk afprøvet.
+**Implementationsversion:** 0.2.0 (firmware-log og `manifest.json`)
+**Status:** v0.2 under udvikling. Tre zoner kører på A16. Boost min. ON-hold og minimum OFF-tid er host-testet, men endnu ikke afprøvet på A16; plausibilitetskontrol samt genstarts- og HA-frakoblingstests mangler.
 
 HeatMesh udfører lokal PI-regulering per zone. BLE-udlæsning leveres af en ESPHome `sensor` (referenceprojektet bruger `bthome_mithermometer`). Home Assistant climate- og diagnostik-entiteter er valgfrie; kontrolsløjfen afhænger ikke af HA/API.
 
@@ -62,7 +62,7 @@ Default og reference-YAML: `kp: 100`, `ki: 0.028`, dvs. fuld demand ved 1 K unde
 - Beregnede pulser kortere end `min_on_time` akkumuleres (carry-over) til senere cyklusser.
 - Efter et udgangsskift til OFF forsinker `min_off_time` næste normale PWM-start. En forsinket cyklus begynder først, når tiden er udløbet; tabt varmetid under ventetiden akkumuleres ikke. PI fortsætter med at regulere under ventetiden.
 - Boost overstyrer `min_off_time` og kan tænde straks. Efter genstart huskes tidligere OFF-tid ikke, så normal regulering kan starte ved første friske sensormåling. OFF-mode og sensorfejl slukker altid straks; efterfølgende normal regulering respekterer OFF-tiden.
-- **Boost:** Hæves setpoint over rumtemperaturen, eller skiftes OFF → HEAT under setpoint, tændes udgangen straks i op til `boost_time`. I er frosset under boost; derefter starter PI en ny PWM-cyklus. Boost stopper tidligt, hvis setpoint nås.
+- **Boost:** Hæves setpoint over rumtemperaturen, eller skiftes OFF → HEAT under setpoint, tændes udgangen straks i op til `boost_time`. I er frosset under boost; derefter starter PI en ny PWM-cyklus. Boost stopper tidligt, når setpoint nås, men først når udgangen har været ON i mindst `min_on_time`. Nås setpoint, før udgangen er tændt, annulleres boost uden puls.
 - Sænkes setpoint til ≤ rumtemperaturen, nulstilles I og carry-over, og udgangen slukker. Sænkes det, men stadig over rumtemperaturen, fortsætter PI med bevaret I.
 - Climate OFF, ikke-finite måling eller sensor-timeout tvinger udgangen OFF straks, afbryder boost og nulstiller integrator/carry-over.
 - Sensoren skal publicere en ny måling efter opstart; en cached state alene tæller ikke som frisk.
@@ -86,13 +86,21 @@ HEAT og OFF er de understøttede modes. Entiteten viser aktuel temperatur, setpo
 
 ## Build og fysisk test
 
-Referencekonfiguration: `components/FloorheatCtrl_A16/a16_v01_singlezone.yaml`. Den er kompileret med ESPHome 2026.10.2 og afprøvet med tre zoner på A16. Ny funktionalitet, herunder minimum OFF-tid, skal stadig testes på hardware. Se [A16-verifikationslisten](../FloorheatCtrl_A16/VERIFICATION_CHECKLIST.md).
+Referencekonfiguration: [a16_heatmesh.yaml](../FloorheatCtrl_A16/a16_heatmesh.yaml). Den er kompileret med ESPHome 2026.10.2 og kører med tre zoner på A16. Ny funktionalitet, herunder boost min. ON-hold og minimum OFF-tid, skal stadig testes på hardware. Se [A16-verifikationslisten](../FloorheatCtrl_A16/VERIFICATION_CHECKLIST.md).
 
-Fokuseret host-test af minimum OFF-tid bruger `tests/heatmesh/test_min_off_time.cpp`, `zone_controller.cpp` og stub-headers; eksempel med GCC fra repository-roden:
+Host-testen `tests/heatmesh/test_min_off_time.cpp` kører den rigtige `zone_controller.cpp` mod stub-headers og dækker minimum OFF-tid, boost (inkl. min. ON-hold) og failsafe. Eksempel med GCC fra repository-roden:
 
 ```sh
 g++ -std=c++17 -Itests/heatmesh/stubs tests/heatmesh/test_min_off_time.cpp components/heatmesh/zone_controller.cpp -o test_min_off_time
 ./test_min_off_time
+```
+
+På Windows uden GCC kan Zig-compileren fra pip bruges med de samme argumenter:
+
+```powershell
+python -m pip install ziglang
+python -m ziglang c++ -std=c++17 -Itests/heatmesh/stubs tests/heatmesh/test_min_off_time.cpp components/heatmesh/zone_controller.cpp -o test_min_off_time.exe
+.\test_min_off_time.exe
 ```
 
 ## Begrænsninger

@@ -9,7 +9,7 @@
 namespace esphome {
 namespace heatmesh {
 
-// Kept for future shared-sensor work. The local v0.1.1 zone path does not use this registry.
+// Kept for the shared-sensor work planned for v0.3. Local zones do not use this registry.
 class SensorManager {
  public:
   struct SensorReading {

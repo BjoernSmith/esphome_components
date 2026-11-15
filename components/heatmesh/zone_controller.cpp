@@ -121,7 +121,10 @@ void ZoneController::loop() {
     stop_heating_(now_ms);
   } else {
     if (boost_active_) {
-      if (!(current_temperature_ < target_temperature_)) {
+      const bool setpoint_reached = !(current_temperature_ < target_temperature_);
+      // A boost pulse that has started is held for min_on_time; one that has not started is simply cancelled.
+      const bool min_on_done = !valve_on_ || uint32_t(now_ms - last_valve_change_ms_) >= min_on_time_ms_;
+      if (setpoint_reached && min_on_done) {
         end_boost_("setpoint reached");
       } else if (now_ms - boost_start_ms_ >= boost_time_ms_) {
         end_boost_("boost time elapsed; PI takes over");

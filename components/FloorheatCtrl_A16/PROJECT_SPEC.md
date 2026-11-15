@@ -10,7 +10,7 @@
 >
 > Skeln konsekvent mellem **BESLUTTET** (allerede valgt), **FORESLÅET** (udgangspunkt til implementering/test) og **SKAL VERIFICERES** (må ikke antages at virke).
 
-> **Statusnote (2026-11-15):** Dette dokument fastholder krav og den oprindelige roadmap; det er ikke den aktuelle fremdriftsrapport. Se [IMPLEMENTERINGSPLAN.md](IMPLEMENTERINGSPLAN.md) for nuværende implementering og næste trin samt [VERIFICATION_CHECKLIST.md](VERIFICATION_CHECKLIST.md) for hvad der er verificeret på build, simulering og fysisk hardware. Funktioner planlagt til v0.2 kan være implementeret tidligere; det betyder ikke, at hardwarevalideringen af v0.1 er afsluttet.
+> **Statusnote (2026-11-15):** Dette dokument fastholder krav og den oprindelige roadmap; det er ikke den aktuelle fremdriftsrapport, og afkrydsningerne i afsnit 8 opdateres ikke løbende. Aktuelt trin er HeatMesh v0.2.0 under udvikling med tre zoner i drift på A16. Afvigelser fra roadmap: climate-entiteten blev implementeret allerede under v0.1, og sensor registry/dublethåndtering er flyttet fra v0.2 til v0.3. Se [IMPLEMENTERINGSPLAN.md](IMPLEMENTERINGSPLAN.md) for status per v0.2-krav og næste trin samt [VERIFICATION_CHECKLIST.md](VERIFICATION_CHECKLIST.md) for hvad der er verificeret i software og på fysisk hardware.
 
 ---
 

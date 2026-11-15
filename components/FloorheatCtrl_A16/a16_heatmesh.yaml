@@ -1,6 +1,6 @@
-# HeatMesh v0.1.2 - KC868-A16, one local BTHome v2 zone.
-# Bench-test this version before allowing it to control the heating system.
-# Location: <repo>/components/FloorheatCtrl_A16/a16_v01_singlezone.yaml
+# HeatMesh v0.2.0 - KC868-A16, three local BTHome v2 zones on Y01-Y03.
+# Bench-test new functionality before allowing it to control the heating system.
+# Location: <repo>/components/FloorheatCtrl_A16/a16_heatmesh.yaml
 
 substitutions:
   sensor_01_friendly_name: "Badeværelse"
@@ -17,8 +17,9 @@ substitutions:
   zone_name_3: "Bryggers"
 
 esphome:
+  # Hostname, OTA target and Home Assistant device ID: keep unchanged.
   name: floorheatctrl-v01
-  friendly_name: FloorHeat_v01_SingleZone
+  friendly_name: FloorHeat A16
 
 esp32:
   variant: esp32
@@ -172,11 +173,12 @@ heatmesh:
       kp: 100
       ki: 0.028
       period_ms: 30000
-      pwm_period_min: 15
-      min_on_time: 5min
+      pwm_period_min: 240
+      min_on_time: 30min
       min_off_time: 0s
       # Setpoint raised above room temperature (or OFF -> HEAT below setpoint):
-      # output ON at once for up to this time, then PI takes over.
+      # output ON at once for up to this time, then PI takes over. Once ON it stays
+      # ON for at least min_on_time, even if the setpoint is reached earlier.
       boost_time: 30min
       # Home Assistant entities. All are optional; regulation runs without them.
       climate:
@@ -207,11 +209,12 @@ heatmesh:
       kp: 100
       ki: 0.028
       period_ms: 30000
-      pwm_period_min: 15
-      min_on_time: 5min
+      pwm_period_min: 240
+      min_on_time: 30min
       min_off_time: 0s
       # Setpoint raised above room temperature (or OFF -> HEAT below setpoint):
-      # output ON at once for up to this time, then PI takes over.
+      # output ON at once for up to this time, then PI takes over. Once ON it stays
+      # ON for at least min_on_time, even if the setpoint is reached earlier.
       boost_time: 30min
       # Home Assistant entities. All are optional; regulation runs without them.
       climate:
@@ -242,11 +245,12 @@ heatmesh:
       kp: 100
       ki: 0.028
       period_ms: 30000
-      pwm_period_min: 15
-      min_on_time: 5min
+      pwm_period_min: 240
+      min_on_time: 30min
       min_off_time: 0s
       # Setpoint raised above room temperature (or OFF -> HEAT below setpoint):
-      # output ON at once for up to this time, then PI takes over.
+      # output ON at once for up to this time, then PI takes over. Once ON it stays
+      # ON for at least min_on_time, even if the setpoint is reached earlier.
       boost_time: 30min
       # Home Assistant entities. All are optional; regulation runs without them.
       climate:

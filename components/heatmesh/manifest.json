@@ -1,15 +1,16 @@
 {
   "domain": "heatmesh",
   "name": "FloorHeat Mesh Controller",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "documentation": "https://github.com/BjoernSmith/esphome_components/tree/main/components/heatmesh",
   "requirements": [],
   "dependencies": [
-    "esp32_ble_tracker",
+    "binary_sensor",
+    "climate",
     "sensor",
     "switch"
   ],
   "codeowners": ["@BjoernSmith"],
-  "esphome": ">=2024.6.0"
+  "esphome": ">=2026.10.2"
 }
 

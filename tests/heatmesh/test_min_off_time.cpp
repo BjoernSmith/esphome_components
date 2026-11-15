@@ -134,6 +134,45 @@ static void test_reboot_bypass() {
   assert(rebooted.valve.state);
 }
 
+// Reaching the setpoint ends boost only after min_on_time, but lowering the setpoint stops it at once.
+static void test_boost_min_on_hold() {
+  now_ms = 0;
+  TestZone test(0, 1800000);
+  test.tick(450000);
+  assert(!test.valve.state);
+  test.zone.set_target_temperature(22.0f);
+  test.zone.loop();
+  assert(test.valve.state && test.zone.is_boost_active());
+  test.sensor.publish_state(22.0f);
+  test.tick(460000);
+  assert(test.valve.state && test.zone.is_boost_active());
+  test.tick(749999);
+  assert(test.valve.state && test.zone.is_boost_active());
+  test.tick(750000);
+  assert(!test.valve.state && !test.zone.is_boost_active());
+
+  test.sensor.publish_state(20.5f);
+  test.zone.set_target_temperature(23.0f);
+  test.tick(800000);
+  assert(test.valve.state && test.zone.is_boost_active());
+  test.sensor.publish_state(23.0f);
+  test.zone.set_target_temperature(22.0f);
+  test.tick(810000);
+  assert(!test.valve.state && !test.zone.is_boost_active());
+}
+
+// A boost that reaches the setpoint before the output is switched on produces no pulse.
+static void test_boost_cancelled_before_on() {
+  now_ms = 0;
+  TestZone test(0, 1800000);
+  test.tick(450000);
+  test.zone.set_target_temperature(22.0f);
+  test.sensor.publish_state(22.0f);
+  test.tick(450001);
+  assert(!test.valve.state && !test.zone.is_boost_active());
+  assert(test.zone.get_valve_switch_count() == 2);
+}
+
 // Runs OFF-time tests, including rollover of the millisecond clock.
 int main() {
   test_zero_bypass();
@@ -141,6 +180,8 @@ int main() {
   test_deferred_cycle(UINT32_MAX - 1000000);
   test_demand_removed_while_waiting();
   test_boost_and_failsafe();
+  test_boost_min_on_hold();
+  test_boost_cancelled_before_on();
   test_full_demand();
   test_reboot_bypass();
   std::puts("min_off_time tests passed");
