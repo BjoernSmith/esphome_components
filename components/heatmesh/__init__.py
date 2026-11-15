@@ -1,9 +1,13 @@
+"""Local HeatMesh zones. BLE decoding remains in bthome_mithermometer."""
+import math
+
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import sensor, switch
 from esphome.const import CONF_ID
 
 CODEOWNERS = ["@BjoernSmith"]
+DEPENDENCIES = ["sensor", "switch"]
 
 heatmesh_ns = cg.esphome_ns.namespace("heatmesh")
 HeatmeshComponent = heatmesh_ns.class_("HeatmeshComponent", cg.Component)
@@ -19,49 +23,81 @@ CONF_KI = "ki"
 CONF_PERIOD_MS = "period_ms"
 CONF_PWM_PERIOD_MIN = "pwm_period_min"
 
+
+def _finite(value):
+    if not math.isfinite(value):
+        raise cv.Invalid("Value must be finite")
+    return value
+
+
+def _sensor_timeout(value):
+    value = cv.positive_time_period_milliseconds(value)
+    if not 0 < value.total_milliseconds <= 0x7FFFFFFF:
+        raise cv.Invalid("sensor_timeout must be > 0 and <= 2147483647ms")
+    return value
+
+
+def _validate_zones(zones):
+    if not zones:
+        raise cv.Invalid("Configure at least one zone")
+    names = set()
+    valves = set()
+    for zone in zones:
+        name = zone[CONF_ZONE_ID]
+        if not name.strip():
+            raise cv.Invalid("zone_id must not be empty")
+        if name in names:
+            raise cv.Invalid(f"Duplicate zone_id: {name}")
+        valve_id = str(zone[CONF_VALVE])
+        if valve_id in valves:
+            raise cv.Invalid(f"Valve {valve_id} is assigned to more than one zone")
+        names.add(name)
+        valves.add(valve_id)
+    return zones
+
+
 ZONE_SCHEMA = cv.Schema(
     {
         cv.Required(CONF_ZONE_ID): cv.string,
         cv.Required(CONF_TEMPERATURE_SENSOR): cv.use_id(sensor.Sensor),
         cv.Required(CONF_VALVE): cv.use_id(switch.Switch),
-        cv.Optional(CONF_SETPOINT, default=21.0): cv.float_range(min=5.0, max=30.0),
-        cv.Optional(CONF_SENSOR_TIMEOUT, default="15min"): cv.time_period,
-        cv.Optional(CONF_KP, default=1.0): cv.float_range(min=0.1, max=10.0),
-        cv.Optional(CONF_KI, default=0.05): cv.float_range(min=0.0, max=1.0),
+        cv.Optional(CONF_SETPOINT, default=21.0): cv.All(cv.float_range(min=5.0, max=30.0), _finite),
+        cv.Optional(CONF_SENSOR_TIMEOUT, default="15min"): _sensor_timeout,
+        # Gains retain the original units: percentage points / K, and / (K*s).
+        cv.Optional(CONF_KP, default=1.0): cv.All(cv.float_range(min=0.1, max=10.0), _finite),
+        cv.Optional(CONF_KI, default=0.05): cv.All(cv.float_range(min=0.0, max=1.0), _finite),
         cv.Optional(CONF_PERIOD_MS, default=30000): cv.int_range(min=1000, max=120000),
         cv.Optional(CONF_PWM_PERIOD_MIN, default=15): cv.int_range(min=5, max=60),
     }
 )
 
-CONFIG_SCHEMA = cv.COMPONENT_SCHEMA.extend(
+CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(HeatmeshComponent),
-        cv.Optional(CONF_ZONES, default=[]): cv.ensure_list(ZONE_SCHEMA),
+        cv.Required(CONF_ZONES): cv.All(cv.ensure_list(ZONE_SCHEMA), _validate_zones),
     }
-)
+).extend(cv.COMPONENT_SCHEMA)
 
 
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
 
-    cg.add_define("HEATMESH_COMPONENT")
-
     for zone_conf in config[CONF_ZONES]:
-        zone_id = zone_conf[CONF_ZONE_ID]
         temp_sensor = await cg.get_variable(zone_conf[CONF_TEMPERATURE_SENSOR])
         valve = await cg.get_variable(zone_conf[CONF_VALVE])
-        
-        cg.add(var.add_zone(
-            cg.safe_exp(f'"{zone_id}"'),
-            temp_sensor,
-            valve,
-            zone_conf[CONF_SETPOINT],
-            int(zone_conf[CONF_SENSOR_TIMEOUT].total_seconds() * 1000),
-            zone_conf[CONF_KP],
-            zone_conf[CONF_KI],
-            zone_conf[CONF_PERIOD_MS],
-            zone_conf[CONF_PWM_PERIOD_MIN],
-        ))
-
-
+        cg.add(
+            var.add_zone(
+                # Pass a Python string. Codegen adds/escapes the C++ quotes itself.
+                zone_conf[CONF_ZONE_ID],
+                temp_sensor,
+                valve,
+                zone_conf[CONF_SETPOINT],
+                # ESPHome TimePeriod properties are not datetime.timedelta methods.
+                zone_conf[CONF_SENSOR_TIMEOUT].total_milliseconds,
+                zone_conf[CONF_KP],
+                zone_conf[CONF_KI],
+                zone_conf[CONF_PERIOD_MS],
+                zone_conf[CONF_PWM_PERIOD_MIN],
+            )
+        )

@@ -1,185 +1,187 @@
 #include "zone_controller.h"
+#include "esphome/core/hal.h"
 #include "esphome/core/log.h"
-
-static const char* const TAG = "heatmesh.zone";
+#include <algorithm>
+#include <cinttypes>
 
 namespace esphome {
 namespace heatmesh {
 
-ZoneController::ZoneController(
-    const std::string& zone_id,
-    sensor::Sensor* temperature_sensor,
-    switch_::Switch* valve_output,
-    float target_temperature,
-    uint32_t sensor_timeout_ms,
-    float kp,
-    float ki,
-    uint32_t control_period_ms,
-    uint32_t pwm_period_min
-)
-    : zone_id_(zone_id),
-      temperature_sensor_(temperature_sensor),
-      valve_output_(valve_output),
-      target_temperature_(target_temperature),
-      sensor_timeout_ms_(sensor_timeout_ms),
-      kp_(kp),
-      ki_(ki),
-      control_period_ms_(control_period_ms),
-      pwm_period_min_(pwm_period_min) {
-  pwm_period_ms_ = pwm_period_min * 60000;  // Convert minutes to ms
+static const char *const TAG = "heatmesh.zone";
+
+ZoneController::ZoneController(const std::string &zone_id, sensor::Sensor *temperature_sensor,
+                               switch_::Switch *valve_output, float target_temperature,
+                               uint32_t sensor_timeout_ms, float kp, float ki,
+                               uint32_t control_period_ms, uint32_t pwm_period_min)
+    : zone_id_(zone_id), temperature_sensor_(temperature_sensor), valve_output_(valve_output),
+      target_temperature_(target_temperature), sensor_timeout_ms_(sensor_timeout_ms),
+      kp_(kp), ki_(ki), control_period_ms_(control_period_ms),
+      pwm_period_ms_(pwm_period_min * 60000UL) {}
+
+void ZoneController::setup() {
+  if (setup_complete_)
+    return;
+  setup_complete_ = true;
   last_control_ms_ = millis();
-  last_pwm_cycle_start_ms_ = millis();
+  if (valve_output_ != nullptr)
+    valve_output_->turn_off();
+  if (temperature_sensor_ != nullptr) {
+    temperature_sensor_->add_on_state_callback([this](float value) { this->on_temperature_(value); });
+  } else {
+    ESP_LOGE(TAG, "[%s] Missing temperature sensor", zone_id_.c_str());
+  }
+  if (valve_output_ == nullptr)
+    ESP_LOGE(TAG, "[%s] Missing valve output", zone_id_.c_str());
+  // Deliberately do not stamp a pre-existing cached sensor state as 'new'.
+  ESP_LOGI(TAG, "[%s] Initialized; output OFF, waiting for fresh temperature", zone_id_.c_str());
+}
+
+void ZoneController::on_temperature_(float value) {
+  if (!std::isfinite(value)) {
+    sample_valid_ = false;
+    current_temperature_ = NAN;
+    // Invalid publications do not refresh the last valid measurement timestamp.
+    ESP_LOGW(TAG, "[%s] Invalid temperature; forcing output OFF", zone_id_.c_str());
+    sensor_valid_ = false;
+    stop_heating_(millis());
+    return;
+  }
+  current_temperature_ = value;
+  last_sensor_update_ms_ = millis();
+  sensor_age_ms_ = 0;
+  ever_received_ = true;
+  sample_valid_ = true;
+  ESP_LOGD(TAG, "[%s] Temperature update: %.2f C", zone_id_.c_str(), value);
+}
+
+void ZoneController::update_sensor_input_(uint32_t now_ms) {
+  sensor_age_ms_ = ever_received_ ? uint32_t(now_ms - last_sensor_update_ms_) : UINT32_MAX;
+  const bool valid = temperature_sensor_ != nullptr && sample_valid_ &&
+                     std::isfinite(current_temperature_) && sensor_age_ms_ < sensor_timeout_ms_;
+  if (!valid && sample_valid_) {
+    // Latch expiry. millis() wrapping again must not revive an ancient reading.
+    sample_valid_ = false;
+  }
+  if (valid != sensor_valid_) {
+    if (valid) {
+      ESP_LOGI(TAG, "[%s] Sensor valid; local control enabled", zone_id_.c_str());
+      control_due_ = true;
+      last_control_ms_ = now_ms;
+    } else {
+      ESP_LOGW(TAG, "[%s] Sensor timeout/invalid (age=%" PRIu32 " ms); output OFF",
+               zone_id_.c_str(), sensor_age_ms_);
+    }
+  }
+  sensor_valid_ = valid;
 }
 
 void ZoneController::loop() {
-  uint32_t now_ms = millis();
-  
-  // Update sensor input (freshness, age)
-  update_sensor_input_();
-  
-  // Run PI controller at the specified interval
-  if (now_ms - last_control_ms_ >= control_period_ms_) {
-    uint32_t dt_ms = now_ms - last_control_ms_;
-    run_pi_controller_(dt_ms);
+  if (!setup_complete_)
+    return;
+  const uint32_t now_ms = millis();
+  update_sensor_input_(now_ms);
+  if (!sensor_valid_) {
+    stop_heating_(now_ms);
+    return;
+  }
+  const uint32_t dt_ms = now_ms - last_control_ms_;
+  if (control_due_ || dt_ms >= control_period_ms_) {
+    // At startup/recovery/setpoint change, evaluate P without inventing elapsed I time.
+    run_pi_controller_(control_due_ ? 0 : std::min(dt_ms, control_period_ms_));
+    control_due_ = false;
     last_control_ms_ = now_ms;
   }
-  
-  // Handle timeproportional output switching
   handle_timeproportional_output_(now_ms);
 }
 
-void ZoneController::update_sensor_input_() {
-  if (temperature_sensor_ == nullptr) {
-    sensor_valid_ = false;
-    sensor_age_ms_ = UINT32_MAX;
-    return;
-  }
-  
-  uint32_t now_ms = millis();
-  
-  // If sensor has a new state, update reading and timestamp
-  if (temperature_sensor_->has_state()) {
-    current_temperature_ = temperature_sensor_->get_state();
-    last_sensor_update_ms_ = now_ms;
-    sensor_age_ms_ = 0;
-  } else {
-    // Sensor hasn't provided data yet
-    sensor_age_ms_ = UINT32_MAX;
-  }
-  
-  // Calculate age since last update
-  if (last_sensor_update_ms_ > 0) {
-    sensor_age_ms_ = now_ms - last_sensor_update_ms_;
-  }
-  
-  // Sensor is valid if age is within timeout
-  if (sensor_age_ms_ <= sensor_timeout_ms_) {
-    sensor_valid_ = true;
-  } else {
-    sensor_valid_ = false;
-    ESP_LOGW(TAG, "[%s] Sensor timeout, age=%lu ms", zone_id_.c_str(), sensor_age_ms_);
-  }
+void ZoneController::stop_heating_(uint32_t now_ms) {
+  heat_demand_ = 0.0f;
+  integrator_ = 0.0f;
+  pwm_on_time_ms_ = 0;
+  pwm_started_ = false;
+  control_due_ = true;
+  last_control_ms_ = now_ms;
+  apply_valve_state_(false, now_ms);
 }
 
 void ZoneController::run_pi_controller_(uint32_t dt_ms) {
-  float error = 0.0f;
-  
-  if (!sensor_valid_) {
-    // Failsafe mode: if failsafe is HEAT, aim for target; if OFF, aim for 0.
-    if (failsafe_mode_ == FailsafeMode::HEAT) {
-      error = target_temperature_ - 15.0f;  // Assume cold, request heat
-    } else {
-      error = 0.0f;  // No heat requested
-    }
-    ESP_LOGW(TAG, "[%s] FAILSAFE: sensor invalid, heat_demand=%.1f%%", 
-             zone_id_.c_str(), heat_demand_);
+  const float error = target_temperature_ - current_temperature_;
+  const float p_term = kp_ * error;
+  const float delta_i = ki_ * error * (dt_ms / 1000.0f);
+  // Conditional anti-windup: integrate up to the output rail, not beyond it.
+  // If error changes sign, the integral may always move back out of saturation.
+  const float proposed = std::max(-100.0f, std::min(100.0f, integrator_ + delta_i));
+  const float proposed_output = p_term + proposed;
+  if (proposed_output > 100.0f && delta_i > 0.0f) {
+    integrator_ = std::max(integrator_, std::max(-100.0f, std::min(100.0f, 100.0f - p_term)));
+  } else if (proposed_output < 0.0f && delta_i < 0.0f) {
+    integrator_ = std::min(integrator_, std::max(-100.0f, std::min(100.0f, -p_term)));
   } else {
-    error = target_temperature_ - current_temperature_;
+    integrator_ = proposed;
   }
-  
-  // Proportional term
-  float p_term = kp_ * error;
-  
-  // Integral term with anti-windup
-  integrator_ += ki_ * error * (dt_ms / 1000.0f);
-  if (integrator_ > integrator_max_) {
-    integrator_ = integrator_max_;
-  } else if (integrator_ < integrator_min_) {
-    integrator_ = integrator_min_;
-  }
-  
-  // Combine terms
-  heat_demand_ = p_term + integrator_;
-  
-  // Clamp to 0-100%
-  if (heat_demand_ < 0.0f) {
+  heat_demand_ = std::max(0.0f, std::min(100.0f, p_term + integrator_));
+  if (!std::isfinite(heat_demand_)) {
+    integrator_ = 0.0f;
     heat_demand_ = 0.0f;
-  } else if (heat_demand_ > 100.0f) {
-    heat_demand_ = 100.0f;
   }
-  
-  ESP_LOGD(TAG, "[%s] PI: T=%.2f°C, target=%.1f°C, error=%.2f, p=%.2f, i=%.2f, demand=%.1f%%",
-            zone_id_.c_str(), current_temperature_, target_temperature_, 
-            error, p_term, integrator_, heat_demand_);
+  ESP_LOGD(TAG, "[%s] PI: T=%.2f C, target=%.1f C, P=%.2f, I=%.2f, demand=%.1f%%",
+           zone_id_.c_str(), current_temperature_, target_temperature_, p_term, integrator_, heat_demand_);
 }
 
 void ZoneController::handle_timeproportional_output_(uint32_t now_ms) {
-  uint32_t elapsed_in_cycle = now_ms - last_pwm_cycle_start_ms_;
-  
-  // Check if we've completed a PWM cycle
-  if (elapsed_in_cycle >= pwm_period_ms_) {
+  if (heat_demand_ <= 0.0f || pwm_period_ms_ == 0) {
+    pwm_started_ = false;
+    pwm_on_time_ms_ = 0;
+    apply_valve_state_(false, now_ms);
+    return;
+  }
+  uint32_t elapsed_ms = now_ms - last_pwm_cycle_start_ms_;
+  if (!pwm_started_ || elapsed_ms >= pwm_period_ms_) {
+    // Start the first cycle immediately, not one full PWM period after boot.
     last_pwm_cycle_start_ms_ = now_ms;
-    
-    // Calculate ON-time for this cycle based on current demand
-    // E.g., if demand=50%, ON-time = 50% of period
-    pwm_on_time_ms_ = (heat_demand_ / 100.0f) * pwm_period_ms_;
-    
-    // Ensure minimum ON time of 0 (or could enforce a floor)
-    if (pwm_on_time_ms_ < 1000 && heat_demand_ > 0.0f) {
-      pwm_on_time_ms_ = 1000;  // At least 1 second on
-    }
-    
-    elapsed_in_cycle = 0;
+    pwm_started_ = true;
+    elapsed_ms = 0;
+    pwm_on_time_ms_ = static_cast<uint32_t>((heat_demand_ / 100.0f) * pwm_period_ms_);
   }
-  
-  // Determine valve state based on position in PWM cycle
-  bool should_be_on = (elapsed_in_cycle < pwm_on_time_ms_);
-  
-  if (should_be_on != valve_on_) {
-    apply_valve_state_(should_be_on, now_ms);
-  }
+  // Positive demand is latched per PWM cycle; zero demand and faults stop immediately.
+  apply_valve_state_(elapsed_ms < pwm_on_time_ms_, now_ms);
 }
 
-void ZoneController::apply_valve_state_(bool new_state, uint32_t now_ms) {
-  valve_on_ = new_state;
-  valve_switch_count_++;
-  
-  if (valve_output_ != nullptr) {
-    if (new_state) {
-      valve_output_->turn_on();
-    } else {
-      valve_output_->turn_off();
-    }
+void ZoneController::apply_valve_state_(bool state, uint32_t now_ms) {
+  if (state != valve_on_) {
+    valve_on_ = state;
+    ++valve_switch_count_;
+    last_valve_change_ms_ = now_ms;
+    ESP_LOGI(TAG, "[%s] Output %s (switch #%" PRIu32 ", demand=%.1f%%)",
+             zone_id_.c_str(), state ? "ON" : "OFF", valve_switch_count_, heat_demand_);
   }
-  
-  ESP_LOGI(TAG, "[%s] Valve %s (switch #%lu, demand=%.1f%%)",
-           zone_id_.c_str(), new_state ? "ON" : "OFF", 
-           valve_switch_count_, heat_demand_);
-  
-  last_valve_change_ms_ = now_ms;
+  // Also undo an accidental external change to the software switch state.
+  if (valve_output_ != nullptr && valve_output_->state != state) {
+    if (state)
+      valve_output_->turn_on();
+    else
+      valve_output_->turn_off();
+  }
 }
 
 void ZoneController::set_target_temperature(float temp) {
-  if (temp < 5.0f) temp = 5.0f;
-  if (temp > 30.0f) temp = 30.0f;
-  
-  if (target_temperature_ != temp) {
-    ESP_LOGI(TAG, "[%s] Setpoint changed: %.1f°C -> %.1f°C",
-             zone_id_.c_str(), target_temperature_, temp);
-    target_temperature_ = temp;
-    // On setpoint change, reset integrator to avoid windup
-    integrator_ = 0.0f;
+  if (!std::isfinite(temp)) {
+    ESP_LOGW(TAG, "[%s] Ignoring non-finite setpoint", zone_id_.c_str());
+    return;
   }
+  temp = std::max(5.0f, std::min(30.0f, temp));
+  if (target_temperature_ == temp)
+    return;
+  ESP_LOGI(TAG, "[%s] Setpoint: %.1f -> %.1f C", zone_id_.c_str(), target_temperature_, temp);
+  target_temperature_ = temp;
+  integrator_ = 0.0f;
+  control_due_ = true;
+  pwm_started_ = false;
+}
+
+void ZoneController::shutdown() {
+  stop_heating_(millis());
+  setup_complete_ = false;
 }
 
 }  // namespace heatmesh

@@ -1,79 +1,25 @@
-# FloorHeat Controller v0.1 - Single Zone Test
-# Based on KC868-A16 with one Xiaomi/Mijia BTHome v2 sensor
-# Target: One regulated zone without Home Assistant dependency
+# HeatMesh fix v0.1.1 - KC868-A16, one local BTHome v2 zone.
+# Bench-test this version before allowing it to control the heating system.
+# Location: <repo>/components/FloorheatCtrl_A16/a16_v01_singlezone_fixed.yaml
 
 substitutions:
-  # Output valve names (Y01-Y16, all 16 KC868-A16 outputs)
-  output_01_friendly_name: "Badeværelse"
-  output_02_friendly_name: "Output 02"
-  output_03_friendly_name: "Output 03"
-  output_04_friendly_name: "Output 04"
-  output_05_friendly_name: "Output 05"
-  output_06_friendly_name: "Output 06"
-  output_07_friendly_name: "Output 07"
-  output_08_friendly_name: "Output 08"
-  output_09_friendly_name: "Output 09"
-  output_10_friendly_name: "Output 10"
-  output_11_friendly_name: "Output 11"
-  output_12_friendly_name: "Output 12"
-  output_13_friendly_name: "Output 13"
-  output_14_friendly_name: "Output 14"
-  output_15_friendly_name: "Output 15"
-  output_16_friendly_name: "Output 16"
-
-  # Sensor names & MAC addresses (up to 16 sensors)
-  # v0.1: Only sensor_01 is active; add more later for v0.2+
   sensor_01_friendly_name: "Badeværelse"
-  sensor_01_mac_address: "A4:C1:38:14:28:EA"  # ← REPLACE WITH YOUR SENSOR MAC
-  
-  sensor_02_friendly_name: "Master soveværelse"
-  sensor_02_mac_address: ""
-  
-  sensor_03_friendly_name: "Master bad"
-  sensor_03_mac_address: ""
-  
-  sensor_04_friendly_name: "Stue"
-  sensor_04_mac_address: ""
-  
-  sensor_05_friendly_name: "Køkken"
-  sensor_05_mac_address: ""
-  
-  sensor_06_friendly_name: "Mellemrum"
-  sensor_06_mac_address: ""
-  
-  sensor_07_friendly_name: "Bjørns kontor"
-  sensor_07_mac_address: ""
-  
-  sensor_08_friendly_name: "Karens kontor"
-  sensor_08_mac_address: ""
-  
-  sensor_09_friendly_name: "Bryggers"
-  sensor_09_mac_address: ""
-  
-  sensor_10_friendly_name: "Entré"
-  sensor_10_mac_address: ""
-  
-  sensor_11_friendly_name: "Sensor 11"
-  sensor_11_mac_address: ""
-  
-  sensor_12_friendly_name: "Sensor 12"
-  sensor_12_mac_address: ""
-  
-  sensor_13_friendly_name: "Sensor 13"
-  sensor_13_mac_address: ""
-  
-  sensor_14_friendly_name: "Sensor 14"
-  sensor_14_mac_address: ""
-  
-  sensor_15_friendly_name: "Sensor 15"
-  sensor_15_mac_address: ""
-  
-  sensor_16_friendly_name: "Sensor 16"
-  sensor_16_mac_address: ""
+  sensor_01_mac_address: "A4:C1:38:14:28:EA"
 
 esphome:
   name: floorheatctrl-v01
   friendly_name: FloorHeat_v01_SingleZone
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          // Number restore publishes a value, but does not execute set_action.
+          auto *zone = id(heatmesh_controller).get_zone("test_living_room");
+          if (zone != nullptr) {
+            zone->set_target_temperature(id(zone_setpoint).state);
+          } else {
+            ESP_LOGE("heatmesh_test", "Zone lookup failed after setup");
+          }
 
 esp32:
   variant: esp32
@@ -85,132 +31,26 @@ logger:
   baud_rate: 115200
 
 api:
+  # Local control must not reboot because HA is disconnected.
+  reboot_timeout: 0s
   encryption:
     key: "Jz1iqf+aWVi0rwF+tL+4p/HCLZ47yd7EfxSvPjgSgZc="
 
 ota:
   - platform: esphome
+    # Optional: password: !secret ota_password
 
 wifi:
-  power_save_mode: HIGH
   ssid: !secret wifi_ssid
   password: !secret wifi_password
+  reboot_timeout: 0s
+  power_save_mode: NONE
 
-# BLE tracker - required for BTHome MiThermometer reading
 esp32_ble_tracker:
+  # The original scan timing is retained to isolate the software fixes.
   scan_parameters:
     interval: 320ms
     window: 300ms
-
-# Diagnostics sensors exposed to Home Assistant
-sensor:
-  # BTHome v2 temperature sensor via MiThermometer platform
-  # Supports: LYWSD03MMC with PVVX/ATC firmware, Shelly BLU, etc.
-  - platform: bthome_mithermometer
-    mac_address: $sensor_01_mac_address
-    temperature:
-      name: "${sensor_01_friendly_name} Temp"
-      id: test_zone_temp
-      unit_of_measurement: "°C"
-    humidity:
-      name: "${sensor_01_friendly_name} Humidity"
-      id: test_zone_humidity
-      unit_of_measurement: "%"
-    battery_level:
-      name: "${sensor_01_friendly_name} Battery"
-      id: test_zone_battery
-      unit_of_measurement: "%"
-
-
-
-  # Zone diagnostics (these are computed by heatmesh component)
-  - platform: template
-    name: "Test Zone Current Temp"
-    unit_of_measurement: "°C"
-    accuracy_decimals: 2
-    lambda: |-
-      auto hm = esphome::heatmesh::HeatmeshComponent::get_instance();
-      if (hm) {
-        auto zone = hm->get_zone("test_living_room");
-        if (zone) return zone->get_current_temperature();
-      }
-      return NAN;
-    update_interval: 10s
-
-  - platform: template
-    name: "Test Zone Setpoint"
-    unit_of_measurement: "°C"
-    accuracy_decimals: 1
-    lambda: |-
-      auto hm = esphome::heatmesh::HeatmeshComponent::get_instance();
-      if (hm) {
-        auto zone = hm->get_zone("test_living_room");
-        if (zone) return zone->get_target_temperature();
-      }
-      return NAN;
-    update_interval: 30s
-
-  - platform: template
-    name: "Test Zone Heat Demand"
-    unit_of_measurement: "%"
-    accuracy_decimals: 1
-    lambda: |-
-      auto hm = esphome::heatmesh::HeatmeshComponent::get_instance();
-      if (hm) {
-        auto zone = hm->get_zone("test_living_room");
-        if (zone) return zone->get_heat_demand_percent();
-      }
-      return NAN;
-    update_interval: 10s
-
-  - platform: template
-    name: "Test Zone Sensor Age"
-    unit_of_measurement: "ms"
-    accuracy_decimals: 0
-    lambda: |-
-      auto hm = esphome::heatmesh::HeatmeshComponent::get_instance();
-      if (hm) {
-        auto zone = hm->get_zone("test_living_room");
-        if (zone) return zone->get_sensor_age_ms();
-      }
-      return NAN;
-    update_interval: 10s
-
-  - platform: template
-    name: "Test Zone Valve Switches"
-    accuracy_decimals: 0
-    lambda: |-
-      auto hm = esphome::heatmesh::HeatmeshComponent::get_instance();
-      if (hm) {
-        auto zone = hm->get_zone("test_living_room");
-        if (zone) return zone->get_valve_switch_count();
-      }
-      return NAN;
-    update_interval: 60s
-
-# I2C for PCF8574 expanders
-i2c:
-  - scl:
-      ignore_strapping_warning: true
-      number: 5
-    sda: 4
-
-# PCF8574 I/O expanders
-pcf8574:
-  - id: outputs_1_8
-    address: 36
-    pcf8575: false
-
-# Test valve output on Y01 (first output)
-switch:
-  - platform: gpio
-    name: "Test Valve (Y01)"
-    id: test_valve_y01
-    pin:
-      inverted: true
-      mode: OUTPUT
-      number: 0
-      pcf8574: outputs_1_8
 
 # External component: heatmesh (GitHub version)
 external_components:
@@ -218,7 +58,96 @@ external_components:
     components: [heatmesh]
     refresh: 0s
 
-# Heatmesh zone controller - SIMPLE TEST
+i2c:
+  - scl:
+      number: 5
+      ignore_strapping_warning: true
+    sda: 4
+
+pcf8574:
+  - id: outputs_1_8
+    address: 0x24
+    pcf8575: false
+
+switch:
+  - platform: gpio
+    id: test_valve_y01
+    name: "Test Valve (Y01)"
+    # HeatMesh owns this output. Avoid a second controller via the HA switch UI.
+    internal: true
+    restore_mode: ALWAYS_OFF
+    pin:
+      pcf8574: outputs_1_8
+      number: 0
+      inverted: true
+      mode: OUTPUT
+
+sensor:
+  - platform: bthome_mithermometer
+    mac_address: ${sensor_01_mac_address}
+    # Only when encryption is enabled on the sensor, and supported by your
+    # installed ESPHome version: bindkey: !secret sensor_01_bindkey
+    temperature:
+      name: "${sensor_01_friendly_name} Temp"
+      id: test_zone_temp
+      on_value:
+        then:
+          - lambda: |-
+              ESP_LOGD("heatmesh.input", "BTHome temperature published: %.2f C", x);
+      # No heartbeat, timeout-generated values or repeated template values here:
+      # the component's freshness timeout follows real sensor publications.
+    humidity:
+      name: "${sensor_01_friendly_name} Humidity"
+      id: test_zone_humidity
+    battery_level:
+      name: "${sensor_01_friendly_name} Battery"
+      id: test_zone_battery
+
+  - platform: template
+    name: "Test Zone Current Temp"
+    unit_of_measurement: "\u00b0C"
+    accuracy_decimals: 2
+    lambda: |-
+      auto *zone = id(heatmesh_controller).get_zone("test_living_room");
+      return zone ? zone->get_current_temperature() : NAN;
+    update_interval: 10s
+
+  - platform: template
+    name: "Test Zone Setpoint"
+    unit_of_measurement: "\u00b0C"
+    accuracy_decimals: 1
+    lambda: |-
+      auto *zone = id(heatmesh_controller).get_zone("test_living_room");
+      return zone ? zone->get_target_temperature() : NAN;
+    update_interval: 10s
+
+  - platform: template
+    name: "Test Zone Heat Demand"
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    lambda: |-
+      auto *zone = id(heatmesh_controller).get_zone("test_living_room");
+      return zone ? zone->get_heat_demand_percent() : NAN;
+    update_interval: 10s
+
+  - platform: template
+    name: "Test Zone Sensor Age"
+    unit_of_measurement: "s"
+    accuracy_decimals: 0
+    lambda: |-
+      auto *zone = id(heatmesh_controller).get_zone("test_living_room");
+      if (zone == nullptr || zone->get_sensor_age_ms() == UINT32_MAX) return NAN;
+      return zone->get_sensor_age_ms() / 1000.0f;
+    update_interval: 10s
+
+  - platform: template
+    name: "Test Zone Valve Switches"
+    accuracy_decimals: 0
+    lambda: |-
+      auto *zone = id(heatmesh_controller).get_zone("test_living_room");
+      return zone ? static_cast<float>(zone->get_valve_switch_count()) : NAN;
+    update_interval: 60s
+
 heatmesh:
   id: heatmesh_controller
   zones:
@@ -227,6 +156,8 @@ heatmesh:
       valve: test_valve_y01
       target_temperature: 21.0
       sensor_timeout: 15min
+      # Original tuning retained, NOT validated as suitable for the real floor.
+      # kp: percentage points / K; ki: percentage points / (K * second).
       kp: 1.2
       ki: 0.08
       period_ms: 30000
@@ -236,45 +167,32 @@ binary_sensor:
   - platform: template
     name: "Test Zone Sensor Valid"
     lambda: |-
-      auto hm = esphome::heatmesh::HeatmeshComponent::get_instance();
-      if (hm) {
-        auto zone = hm->get_zone("test_living_room");
-        if (zone) return zone->get_sensor_valid();
-      }
-      return false;
+      auto *zone = id(heatmesh_controller).get_zone("test_living_room");
+      return zone ? zone->get_sensor_valid() : false;
 
   - platform: template
     name: "Test Zone Valve State"
+    # Electrical ON/OFF command, not actual mechanical valve position.
     lambda: |-
-      auto hm = esphome::heatmesh::HeatmeshComponent::get_instance();
-      if (hm) {
-        auto zone = hm->get_zone("test_living_room");
-        if (zone) return zone->get_valve_state();
-      }
-      return false;
+      auto *zone = id(heatmesh_controller).get_zone("test_living_room");
+      return zone ? zone->get_valve_state() : false;
 
-# Test direct read - NOT via template lambda
 number:
   - platform: template
+    id: zone_setpoint
     name: "Test Zone Setpoint"
-    unit_of_measurement: "°C"
+    unit_of_measurement: "\u00b0C"
     min_value: 5.0
     max_value: 30.0
     step: 0.5
     initial_value: 21.0
+    optimistic: true
+    restore_value: true
     set_action:
       - lambda: |-
-          ESP_LOGI("heatmesh_test", "SET CALLED with x=%.1f", x);
-          auto hm = esphome::heatmesh::HeatmeshComponent::get_instance();
-          if (hm) {
-            ESP_LOGI("heatmesh_test", "HM instance found!");
-            auto zone = hm->get_zone("test_living_room");
-            if (zone) {
-              ESP_LOGI("heatmesh_test", "Zone found! Setting to %.1f", x);
-              zone->set_target_temperature(x);
-            } else {
-              ESP_LOGI("heatmesh_test", "Zone NOT found!");
-            }
+          auto *zone = id(heatmesh_controller).get_zone("test_living_room");
+          if (zone != nullptr) {
+            zone->set_target_temperature(x);
           } else {
-            ESP_LOGI("heatmesh_test", "HM instance is NULL!");
+            ESP_LOGE("heatmesh_test", "Cannot set setpoint: zone not initialized");
           }
