@@ -1,7 +1,7 @@
 # HeatMesh ESPHome External Component
 
 **Implementationsversion:** 0.1.2 (firmware/config label; manifest metadata remains 0.1.0)
-**Status:** ESPHome 2026.10.2 ESP32 compile og host-simulering bestået; fysisk A16-test af climate-versionen mangler.
+**Status:** Tre zoner er afprøvet på A16. Udvidede genstarts- og HA-frakoblingstests afventer; minimum OFF-tid er endnu ikke fysisk afprøvet.
 
 HeatMesh udfører lokal PI-regulering per zone. BLE-udlæsning leveres af en ESPHome `sensor` (referenceprojektet bruger `bthome_mithermometer`). Home Assistant climate- og diagnostik-entiteter er valgfrie; kontrolsløjfen afhænger ikke af HA/API.
 
@@ -21,6 +21,7 @@ heatmesh:
       period_ms: 30000
       pwm_period_min: 15
       min_on_time: 5min
+      min_off_time: 0s
       boost_time: 30min
       climate:
         name: "Living Room"
@@ -36,7 +37,7 @@ heatmesh:
         name: "Living Room Valve Switches"
 ```
 
-Påkrævet per zone: `zone_id`, `temperature_sensor`, `valve`. Kontrolparametre har defaults; climate- og diagnoseentities er valgfrie. Almindelige ESPHome entity-indstillinger (`name`, `id`, osv.) accepteres. Flere zoner accepteres af schemaet, men den aktuelle hardwareverifikation dækker kun én zone.
+Påkrævet per zone: `zone_id`, `temperature_sensor`, `valve`. Kontrolparametre har defaults; climate- og diagnoseentities er valgfrie. Almindelige ESPHome entity-indstillinger (`name`, `id`, osv.) accepteres.
 
 ## Parametre
 
@@ -49,6 +50,7 @@ Påkrævet per zone: `zone_id`, `temperature_sensor`, `valve`. Kontrolparametre 
 | `period_ms` | 30,000 | 1,000–120,000 ms |
 | `pwm_period_min` | 15 | 5–60 min |
 | `min_on_time` | 5 min | Positiv; skal være kortere end PWM-perioden |
+| `min_off_time` | 0 s | `0s` deaktiverer; højst 24 timer |
 | `boost_time` | 30 min | `0s` slår boost fra; ellers mindst `min_on_time` |
 
 Default og reference-YAML: `kp: 100`, `ki: 0.028`, dvs. fuld demand ved 1 K under setpoint og en integraltid `Kp/Ki` på ca. 60 min. Det er startværdier, ikke endeligt indreguleret på gulvet.
@@ -58,6 +60,8 @@ Default og reference-YAML: `kp: 100`, `ki: 0.028`, dvs. fuld demand ved 1 K unde
 - PI: `error = target - temperature`; output begrænses til 0–100 % med anti-windup. Integratoren vokser ikke, mens P alene giver ≥100 % (≥1 K under setpoint med defaults).
 - Positive demand konverteres til én ON-puls per PWM-periode; under 1 K fejl giver P delvis demand, og I bygger op, så små fejl giver en puls inden for ca. en time.
 - Beregnede pulser kortere end `min_on_time` akkumuleres (carry-over) til senere cyklusser.
+- Efter et udgangsskift til OFF forsinker `min_off_time` næste normale PWM-start. En forsinket cyklus begynder først, når tiden er udløbet; tabt varmetid under ventetiden akkumuleres ikke. PI fortsætter med at regulere under ventetiden.
+- Boost overstyrer `min_off_time` og kan tænde straks. Efter genstart huskes tidligere OFF-tid ikke, så normal regulering kan starte ved første friske sensormåling. OFF-mode og sensorfejl slukker altid straks; efterfølgende normal regulering respekterer OFF-tiden.
 - **Boost:** Hæves setpoint over rumtemperaturen, eller skiftes OFF → HEAT under setpoint, tændes udgangen straks i op til `boost_time`. I er frosset under boost; derefter starter PI en ny PWM-cyklus. Boost stopper tidligt, hvis setpoint nås.
 - Sænkes setpoint til ≤ rumtemperaturen, nulstilles I og carry-over, og udgangen slukker. Sænkes det, men stadig over rumtemperaturen, fortsætter PI med bevaret I.
 - Climate OFF, ikke-finite måling eller sensor-timeout tvinger udgangen OFF straks, afbryder boost og nulstiller integrator/carry-over.
@@ -82,8 +86,15 @@ HEAT og OFF er de understøttede modes. Entiteten viser aktuel temperatur, setpo
 
 ## Build og fysisk test
 
-Referencekonfiguration: `components/FloorheatCtrl_A16/a16_v01_singlezone.yaml`. Denne blev kompileret med ESPHome 2026.10.2 mod lokal component checkout. En host-platform build og simulering verificerede mode/setpoint restore, ON/OFF, timeout og recovery. Den nye version skal stadig testes på den fysiske A16 med ufarlig testlast før telestat tilsluttes. Se [A16-verifikationslisten](../FloorheatCtrl_A16/VERIFICATION_CHECKLIST.md).
+Referencekonfiguration: `components/FloorheatCtrl_A16/a16_v01_singlezone.yaml`. Den er kompileret med ESPHome 2026.10.2 og afprøvet med tre zoner på A16. Ny funktionalitet, herunder minimum OFF-tid, skal stadig testes på hardware. Se [A16-verifikationslisten](../FloorheatCtrl_A16/VERIFICATION_CHECKLIST.md).
+
+Fokuseret host-test af minimum OFF-tid bruger `tests/heatmesh/test_min_off_time.cpp`, `zone_controller.cpp` og stub-headers; eksempel med GCC fra repository-roden:
+
+```sh
+g++ -std=c++17 -Itests/heatmesh/stubs tests/heatmesh/test_min_off_time.cpp components/heatmesh/zone_controller.cpp -o test_min_off_time
+./test_min_off_time
+```
 
 ## Begrænsninger
 
-Fysisk sensor-/ventilvalidering, PI-indregulering, flere samtidige zoner i drift, sensor registry/dublethåndtering, RS485, pumpekald og HMI er ikke afsluttet. De større projektkrav findes i [PROJECT_SPEC.md](../FloorheatCtrl_A16/PROJECT_SPEC.md).
+PI-indregulering, plausibilitetsfiltrering, RS485, pumpekald og HMI er ikke afsluttet. Lokale zoner bruger ESPHome-sensorer direkte; ESPHome 2026.10.2 afviser gentaget BTHome-pakke-ID, når pakken indeholder det. HeatMesh accepterer derimod alle endelige temperaturværdier, også urealistiske; plausibilitetsgrænser og fejladfærd mangler at blive valgt. Den ubrugte `SensorManager` håndterer hverken valg af lokale/fjerne målinger eller fuld dublethåndtering. Sådan en registry bliver relevant for de delte sensorer i v0.3. De større projektkrav findes i [PROJECT_SPEC.md](../FloorheatCtrl_A16/PROJECT_SPEC.md).

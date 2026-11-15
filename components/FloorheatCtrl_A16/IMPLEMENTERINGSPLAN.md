@@ -1,18 +1,18 @@
 # HeatMesh — implementeringsplan og fremdrift
 
 **Opdateret:** 2026-11-15
-**Nuværende mål:** Færdiggør og hardwarevalidér én autonom gulvvarmezone på KC868-A16.
-**Status:** Software v0.1.2 implementeret; build og host-simulering bestået; ny firmware endnu ikke valideret på fysisk A16.
+**Nuværende mål:** Færdiggør v0.2 med flere autonome gulvvarmezoner på KC868-A16.
+**Status:** Tre zoner er afprøvet på A16. Brugeren har bekræftet isoleret zonefejl og hardwareaccept; genstart/watchdog og HA-frakobling afventer.
 
 ## Hvad der findes nu
 
 - ESPHome External Component i `components/heatmesh/`.
-- Én eller flere zonekonfigurationer i schemaet; kun én-zone-konfigurationen er build- og simuleringsverificeret.
-- PI-regulator med anti-windup, tidsproportional udgang, min. ON-tid med carry-over og temperatur-freshness timeout.
+- Tre zonekonfigurationer med separate sensorer og udgange i reference-YAML'en.
+- PI-regulator med anti-windup, tidsproportional udgang, min. ON-tid med carry-over, valgfri min. OFF-tid og temperatur-freshness timeout.
 - Fast failsafe: ugyldig eller udløbet måling tvinger udgangen OFF. Failsafe-mode kan ikke konfigureres.
 - Valgfri native Home Assistant climate- og diagnostik-entiteter per zone. YAML'en kræver ingen lambdas.
 - Climate understøtter HEAT/OFF. Setpoint og mode gendannes efter genstart, når climate-entiteten er konfigureret.
-- YAML-reference til KC868-A16, én BTHome v2-sensor og Y01.
+- YAML-reference til KC868-A16, tre BTHome v2-sensorer og Y01–Y03.
 
 ## Konfiguration i reference-YAML'en
 
@@ -24,6 +24,7 @@
 | PI-opdatering | 30 s | |
 | PWM-periode | 15 min | |
 | Min. ventil-ON-puls | 5 min | Kortere beregnet tid akkumuleres til senere PWM-cyklusser |
+| Min. ventil-OFF-tid | 0 s | Deaktiveret; boost og genstart overstyrer en konfigureret OFF-tid |
 | Boost | 30 min | Udgang ON straks ved hævet setpoint over rumtemperatur eller OFF → HEAT under setpoint |
 | Setpoint ved første boot | 21.0 °C | Climate gemmer efterfølgende sit setpoint lokalt |
 
@@ -36,25 +37,22 @@ Værdierne er en testkonfiguration, ikke dokumentation for endelig tuning. OFF-m
 - [x] ESPHome 2026.10.2 accepterer YAML og compilerer ESP32-firmware med den lokale component checkout.
 - [x] Host-build compilerer samme komponentkode.
 - [x] Host-simulering verificerede HEAT/OFF, setpoint- og mode-restore, output ON/OFF, sensortimeout og recovery.
-- [x] Tidligere firmware gav reelle sensor-/reguleringslogs; disse logs er ikke verifikation af den nye climate-firmware.
-- [ ] Fysisk A16-test af den nye v0.1.2-firmware.
+- [x] Tre zoner, uafhængig zonefejl og hardware er bekræftet af brugeren.
+- [ ] Fysisk test af den nye minimum OFF-tid.
 
 ## Næste trin — prioriteret
 
-1. **Synkronisér repository til den anden PC.** Commit og push ændringer, der skal med; YAML'en peger på GitHub `main`.
-2. **Byg og flash på A16.** Brug testlast først. Bekræft, at climate, sensordata og diagnostik vises korrekt i HA.
-3. **Test HEAT/OFF.** Bekræft HEAT regulerer, OFF slukker udgangen straks, og mode/setpoint overlever genstart.
-4. **Test failsafe sikkert.** Fjern BLE-sensoren eller stop dens udsendelser; efter 15 min skal `Sensor Valid` være OFF og udgangen OFF. Bekræft recovery efter næste gyldige måling.
-5. **Bekræft Y01 elektrisk og mekanisk.** YAML antager PCF8574 `0x24`, kanal 0, inverteret GPIO-switch. Bekræft board revision, spænding, polaritet og testlast før tilslutning af telestat.
-6. **Kør uden Home Assistant.** Afbryd HA/API efter sikkerhedsforholdene er afklaret; lokal regulering skal fortsætte.
-7. **Log driften over tid.** Først efter hardwaretest vurderes Kp/Ki, minimumspuls og PWM-periode; mål telestatens åbne-/lukketid.
+1. **Minimum OFF-tid:** Test en ikke-nul værdi på A16, herunder boost-bypass og straks-OFF ved fejl.
+2. **Sensorer:** Afklar ønsket konfigurerbar plausibilitetskontrol. Lokale sensorer håndteres direkte af zonerne; registry og deduplikering af lokale/fjerne målinger er først nødvendigt med v0.3-transporten.
+3. **Udskudte tests:** Verificér opstart, gendannelse af mode/setpoint, watchdog/reboot, sensortab/recovery og drift uden Home Assistant, når det er muligt.
+4. **Regulering:** Vurder PI/PWM og aktiveringer over tid; finjustering er planlagt til v0.4.
 
 ## Åbne punkter / ikke del af denne milepæl
 
-- Fysisk validering af hardwaremapping, telestatstrøm og ventiltider.
+- Dokumenter målte hardwaredata, herunder telestatstrøm og ventiltider.
 - BLE/Wi-Fi coexistence og HA-frakobling på den aktuelle firmware.
 - Langtidsdrift og komfortmæssig PI-tuning.
 - Migrering af setpoint fra den gamle template-number-entitet: der er ingen migrering. Første climate-start bruger YAML-værdien 21 °C, hvis der ikke findes gemt climate-state.
-- Flere samtidige zoner på hardware, sensor registry/dublethåndtering, plausibilitetskontrol, RS485, pumpelogik og HMI.
+- Plausibilitetskontrol, delt sensor registry/dublethåndtering, RS485, pumpelogik og HMI.
 
 `PROJECT_SPEC.md` er fortsat kravgrundlaget. Dets roadmap-placering af climate under v0.2 beskriver den oprindelige plan; climate er implementeret tidligere, men den samlede v0.1 hardware-accept er stadig åben.

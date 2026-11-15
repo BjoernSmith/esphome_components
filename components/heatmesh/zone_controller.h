@@ -19,7 +19,7 @@ class ZoneController {
                  switch_::Switch *valve_output, float target_temperature,
                  uint32_t sensor_timeout_ms, float kp, float ki,
                  uint32_t control_period_ms, uint32_t pwm_period_min, uint32_t min_on_time_ms,
-                 uint32_t boost_time_ms);
+                 uint32_t min_off_time_ms, uint32_t boost_time_ms);
 
   // Initializes the output, sensor callback, diagnostics, and restored climate state.
   void setup();
@@ -98,6 +98,7 @@ class ZoneController {
   uint32_t control_period_ms_;
   uint32_t pwm_period_ms_;
   uint32_t min_on_time_ms_;
+  uint32_t min_off_time_ms_;
   uint32_t boost_time_ms_;
 
   float current_temperature_{NAN};
@@ -111,6 +112,8 @@ class ZoneController {
   bool control_due_{true};
   bool pwm_started_{false};
   bool boost_active_{false};
+  bool min_off_waiting_{false};
+  bool min_off_logged_{false};
   uint32_t boost_start_ms_{0};
   uint32_t sensor_age_ms_{UINT32_MAX};
   uint32_t last_sensor_update_ms_{0};

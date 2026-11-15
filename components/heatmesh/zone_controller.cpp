@@ -16,12 +16,12 @@ ZoneController::ZoneController(const std::string &zone_id, sensor::Sensor *tempe
                                switch_::Switch *valve_output, float target_temperature,
                                uint32_t sensor_timeout_ms, float kp, float ki,
                                uint32_t control_period_ms, uint32_t pwm_period_min,
-                               uint32_t min_on_time_ms, uint32_t boost_time_ms)
+                               uint32_t min_on_time_ms, uint32_t min_off_time_ms, uint32_t boost_time_ms)
     : zone_id_(zone_id), temperature_sensor_(temperature_sensor), valve_output_(valve_output),
       target_temperature_(target_temperature), sensor_timeout_ms_(sensor_timeout_ms),
       kp_(kp), ki_(ki), control_period_ms_(control_period_ms),
       pwm_period_ms_(pwm_period_min * 60000UL), min_on_time_ms_(min_on_time_ms),
-      boost_time_ms_(boost_time_ms) {}
+      min_off_time_ms_(min_off_time_ms), boost_time_ms_(boost_time_ms) {}
 
 // Starts the valve safely, subscribes to temperature updates, and restores climate state.
 void ZoneController::setup() {
@@ -29,6 +29,8 @@ void ZoneController::setup() {
     return;
   setup_complete_ = true;
   last_control_ms_ = millis();
+  min_off_waiting_ = false;
+  min_off_logged_ = false;
   if (valve_output_ != nullptr)
     valve_output_->turn_off();
   if (temperature_sensor_ != nullptr) {
@@ -39,9 +41,10 @@ void ZoneController::setup() {
   if (valve_output_ == nullptr)
     ESP_LOGE(TAG, "[%s] Missing valve output", zone_id_.c_str());
   // Deliberately do not stamp a pre-existing cached sensor state as 'new'.
-  ESP_LOGI(TAG, "[%s] Initialized: target=%.1f C, timeout=%" PRIu32 " ms, kp=%.3f, ki=%.4f, boost=%" PRIu32
-                " s; output OFF",
-           zone_id_.c_str(), target_temperature_, sensor_timeout_ms_, kp_, ki_, boost_time_ms_ / 1000);
+  ESP_LOGI(TAG, "[%s] Initialized: target=%.1f C, timeout=%" PRIu32 " ms, kp=%.3f, ki=%.4f, min_off=%" PRIu32
+                " ms, boost=%" PRIu32 " s; output OFF",
+           zone_id_.c_str(), target_temperature_, sensor_timeout_ms_, kp_, ki_, min_off_time_ms_,
+           boost_time_ms_ / 1000);
 
   if (sensor_valid_binary_sensor_ != nullptr)
     sensor_valid_binary_sensor_->publish_initial_state(false);
@@ -109,6 +112,10 @@ void ZoneController::loop() {
   if (!setup_complete_)
     return;
   const uint32_t now_ms = millis();
+  if (min_off_waiting_ && uint32_t(now_ms - last_valve_change_ms_) >= min_off_time_ms_) {
+    min_off_waiting_ = false;
+    min_off_logged_ = false;
+  }
   update_sensor_input_(now_ms);
   if (!sensor_valid_ || !enabled_) {
     stop_heating_(now_ms);
@@ -198,6 +205,13 @@ void ZoneController::handle_timeproportional_output_(uint32_t now_ms) {
   }
   uint32_t elapsed_ms = now_ms - last_pwm_cycle_start_ms_;
   if (!pwm_started_ || elapsed_ms >= pwm_period_ms_) {
+    if (!valve_on_ && min_off_waiting_) {
+      if (!min_off_logged_) {
+        ESP_LOGI(TAG, "[%s] Waiting for minimum OFF time before starting PWM", zone_id_.c_str());
+        min_off_logged_ = true;
+      }
+      return;
+    }
     // Start the first cycle immediately, not one full PWM period after boot.
     last_pwm_cycle_start_ms_ = now_ms;
     pwm_started_ = true;
@@ -227,6 +241,8 @@ void ZoneController::apply_valve_state_(bool state, uint32_t now_ms) {
     valve_on_ = state;
     ++valve_switch_count_;
     last_valve_change_ms_ = now_ms;
+    min_off_waiting_ = !state && min_off_time_ms_ > 0;
+    min_off_logged_ = false;
     ESP_LOGI(TAG, "[%s] Output %s (switch #%" PRIu32 ", demand=%.1f%%)",
              zone_id_.c_str(), state ? "ON" : "OFF", valve_switch_count_, heat_demand_);
     if (valve_state_binary_sensor_ != nullptr)

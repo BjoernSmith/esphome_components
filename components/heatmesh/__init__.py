@@ -34,6 +34,7 @@ CONF_KI = "ki"
 CONF_PERIOD_MS = "period_ms"
 CONF_PWM_PERIOD_MIN = "pwm_period_min"
 CONF_MIN_ON_TIME = "min_on_time"
+CONF_MIN_OFF_TIME = "min_off_time"
 CONF_BOOST_TIME = "boost_time"
 CONF_CLIMATE = "climate"
 CONF_HEAT_DEMAND = "heat_demand"
@@ -111,6 +112,11 @@ ZONE_SCHEMA = cv.Schema(
         cv.Optional(CONF_PWM_PERIOD_MIN, default=15): cv.int_range(min=5, max=60),
         # Pulses shorter than this are carried into later PWM cycles.
         cv.Optional(CONF_MIN_ON_TIME, default="5min"): cv.positive_time_period_milliseconds,
+        # A zero duration disables the minimum OFF interval.
+        cv.Optional(CONF_MIN_OFF_TIME, default="0s"): cv.All(
+            cv.positive_time_period_milliseconds,
+            cv.Range(max=cv.TimePeriod(hours=24)),
+        ),
         # Forced ON after raising the setpoint above the room temperature (or OFF -> HEAT
         # below setpoint), before PI takes over. 0s disables.
         cv.Optional(CONF_BOOST_TIME, default="30min"): cv.All(
@@ -178,6 +184,7 @@ async def to_code(config):
             zone_conf[CONF_PERIOD_MS],
             zone_conf[CONF_PWM_PERIOD_MIN],
             zone_conf[CONF_MIN_ON_TIME].total_milliseconds,
+            zone_conf[CONF_MIN_OFF_TIME].total_milliseconds,
             zone_conf[CONF_BOOST_TIME].total_milliseconds,
         )
         cg.add(var.add_zone(zone))

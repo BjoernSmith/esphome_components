@@ -3,6 +3,13 @@
 **Opdateret:** 2026-11-15
 Markér kun hardwarepunkter efter fysisk test. Build- og host-testresultater er softwareverifikation, ikke dokumentation for korrekt tilsluttet A16/telestat.
 
+**v0.2-status:** Brugeren har bekræftet tre zoner, fejl-isolation mellem zoner og hardwareaccept. Måledata og testdetaljer nedenfor er ikke oplyst. Genstart/watchdog, HA-frakobling og separat test af sensor-recovery afventer; minimum OFF-tid er endnu ikke fysisk testet.
+
+- [x] Brugeren har bekræftet, at en zonefejl er isoleret fra de øvrige zoner.
+- [x] Brugeren har bekræftet hardwareaccept for opsætningen.
+- [ ] Test konfigureret `min_off_time`: PWM venter, boost overstyrer, og sensorfejl/OFF stopper straks.
+- [ ] Test boost: hævet setpoint og OFF → HEAT; kontrollér ophør ved setpoint og efter boost-tid.
+
 ## Software verificeret
 
 - [x] Python schema/codegen og ESPHome config genererer for reference-YAML'en.
