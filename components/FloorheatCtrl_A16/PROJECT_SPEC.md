@@ -10,6 +10,8 @@
 >
 > Skeln konsekvent mellem **BESLUTTET** (allerede valgt), **FORESLÅET** (udgangspunkt til implementering/test) og **SKAL VERIFICERES** (må ikke antages at virke).
 
+> **Statusnote (2026-11-15):** Dette dokument fastholder krav og den oprindelige roadmap; det er ikke den aktuelle fremdriftsrapport. Se [IMPLEMENTERINGSPLAN.md](IMPLEMENTERINGSPLAN.md) for nuværende implementering og næste trin samt [VERIFICATION_CHECKLIST.md](VERIFICATION_CHECKLIST.md) for hvad der er verificeret på build, simulering og fysisk hardware. Funktioner planlagt til v0.2 kan være implementeret tidligere; det betyder ikke, at hardwarevalideringen af v0.1 er afsluttet.
+
 ---
 
 ## 1. Formål og installation
@@ -122,11 +124,11 @@ ESPHome-reference: https://esphome.io/components/sensor/bthome_mithermometer/
    | - failsafe           |                         | - failsafe           |
    +----------------------+                         +----------------------+
              |                                                |
-             +-------------- Ethernet/LAN ---------------------+
+             +-------------- Ethernet/LAN/WIFI ---------------+
                                       |
                       +---------------+--------------+
-                      | Home Assistant (valgfri)      |
-                      | Overvågning + setpunkter      |
+                      | Home Assistant (valgfri)     |
+                      | Overvågning + setpunkter     |
                       +------------------------------+
 
      Touch-HMI: senere, med særskilt afklaret interface/protokol.
