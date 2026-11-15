@@ -1,4 +1,5 @@
 #include "zone_controller.h"
+#include "zone_climate.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 #include <algorithm>
@@ -8,6 +9,7 @@ namespace esphome {
 namespace heatmesh {
 
 static const char *const TAG = "heatmesh.zone";
+static const uint32_t DIAGNOSTIC_PUBLISH_INTERVAL_MS = 10000;
 
 ZoneController::ZoneController(const std::string &zone_id, sensor::Sensor *temperature_sensor,
                                switch_::Switch *valve_output, float target_temperature,
@@ -34,7 +36,19 @@ void ZoneController::setup() {
   if (valve_output_ == nullptr)
     ESP_LOGE(TAG, "[%s] Missing valve output", zone_id_.c_str());
   // Deliberately do not stamp a pre-existing cached sensor state as 'new'.
-  ESP_LOGI(TAG, "[%s] Initialized; output OFF, waiting for fresh temperature", zone_id_.c_str());
+  ESP_LOGI(TAG, "[%s] Initialized: target=%.1f C, timeout=%" PRIu32 " ms, kp=%.3f, ki=%.4f; output OFF",
+           zone_id_.c_str(), target_temperature_, sensor_timeout_ms_, kp_, ki_);
+
+  if (sensor_valid_binary_sensor_ != nullptr)
+    sensor_valid_binary_sensor_->publish_initial_state(false);
+  if (valve_state_binary_sensor_ != nullptr)
+    valve_state_binary_sensor_->publish_initial_state(false);
+  if (valve_switch_count_sensor_ != nullptr)
+    valve_switch_count_sensor_->publish_state(valve_switch_count_);
+  // Publish the remaining diagnostics on the first loop.
+  last_publish_ms_ = last_control_ms_ - DIAGNOSTIC_PUBLISH_INTERVAL_MS;
+  if (climate_ != nullptr)
+    climate_->restore();
 }
 
 void ZoneController::on_temperature_(float value) {
@@ -44,7 +58,11 @@ void ZoneController::on_temperature_(float value) {
     // Invalid publications do not refresh the last valid measurement timestamp.
     ESP_LOGW(TAG, "[%s] Invalid temperature; forcing output OFF", zone_id_.c_str());
     sensor_valid_ = false;
+    if (sensor_valid_binary_sensor_ != nullptr)
+      sensor_valid_binary_sensor_->publish_state(false);
     stop_heating_(millis());
+    if (climate_ != nullptr)
+      climate_->sync_from_zone();
     return;
   }
   current_temperature_ = value;
@@ -53,6 +71,8 @@ void ZoneController::on_temperature_(float value) {
   ever_received_ = true;
   sample_valid_ = true;
   ESP_LOGD(TAG, "[%s] Temperature update: %.2f C", zone_id_.c_str(), value);
+  if (climate_ != nullptr)
+    climate_->sync_from_zone();
 }
 
 void ZoneController::update_sensor_input_(uint32_t now_ms) {
@@ -72,6 +92,8 @@ void ZoneController::update_sensor_input_(uint32_t now_ms) {
       ESP_LOGW(TAG, "[%s] Sensor timeout/invalid (age=%" PRIu32 " ms); output OFF",
                zone_id_.c_str(), sensor_age_ms_);
     }
+    if (sensor_valid_binary_sensor_ != nullptr)
+      sensor_valid_binary_sensor_->publish_state(valid);
   }
   sensor_valid_ = valid;
 }
@@ -81,18 +103,29 @@ void ZoneController::loop() {
     return;
   const uint32_t now_ms = millis();
   update_sensor_input_(now_ms);
-  if (!sensor_valid_) {
+  if (!sensor_valid_ || !enabled_) {
     stop_heating_(now_ms);
+  } else {
+    const uint32_t dt_ms = now_ms - last_control_ms_;
+    if (control_due_ || dt_ms >= control_period_ms_) {
+      // At startup/recovery/setpoint change, evaluate P without inventing elapsed I time.
+      run_pi_controller_(control_due_ ? 0 : std::min(dt_ms, control_period_ms_));
+      control_due_ = false;
+      last_control_ms_ = now_ms;
+    }
+    handle_timeproportional_output_(now_ms);
+  }
+  publish_periodic_(now_ms);
+}
+
+void ZoneController::publish_periodic_(uint32_t now_ms) {
+  if (now_ms - last_publish_ms_ < DIAGNOSTIC_PUBLISH_INTERVAL_MS)
     return;
-  }
-  const uint32_t dt_ms = now_ms - last_control_ms_;
-  if (control_due_ || dt_ms >= control_period_ms_) {
-    // At startup/recovery/setpoint change, evaluate P without inventing elapsed I time.
-    run_pi_controller_(control_due_ ? 0 : std::min(dt_ms, control_period_ms_));
-    control_due_ = false;
-    last_control_ms_ = now_ms;
-  }
-  handle_timeproportional_output_(now_ms);
+  last_publish_ms_ = now_ms;
+  if (heat_demand_sensor_ != nullptr)
+    heat_demand_sensor_->publish_state(heat_demand_);
+  if (sensor_age_sensor_ != nullptr)
+    sensor_age_sensor_->publish_state(sensor_age_ms_ == UINT32_MAX ? NAN : sensor_age_ms_ / 1000.0f);
 }
 
 void ZoneController::stop_heating_(uint32_t now_ms) {
@@ -169,6 +202,12 @@ void ZoneController::apply_valve_state_(bool state, uint32_t now_ms) {
     last_valve_change_ms_ = now_ms;
     ESP_LOGI(TAG, "[%s] Output %s (switch #%" PRIu32 ", demand=%.1f%%)",
              zone_id_.c_str(), state ? "ON" : "OFF", valve_switch_count_, heat_demand_);
+    if (valve_state_binary_sensor_ != nullptr)
+      valve_state_binary_sensor_->publish_state(state);
+    if (valve_switch_count_sensor_ != nullptr)
+      valve_switch_count_sensor_->publish_state(valve_switch_count_);
+    if (climate_ != nullptr)
+      climate_->sync_from_zone();
   }
   // Also undo an accidental external change to the software switch state.
   if (valve_output_ != nullptr && valve_output_->state != state) {
@@ -191,6 +230,18 @@ void ZoneController::set_target_temperature(float temp) {
   target_temperature_ = temp;
   // A setpoint change is not a fault: keep the integrator and the running PWM cycle.
   control_due_ = true;
+}
+
+void ZoneController::set_enabled(bool enabled) {
+  if (enabled_ == enabled)
+    return;
+  enabled_ = enabled;
+  ESP_LOGI(TAG, "[%s] Mode %s", zone_id_.c_str(), enabled ? "HEAT" : "OFF; output forced OFF");
+  if (enabled) {
+    control_due_ = true;
+  } else {
+    stop_heating_(millis());
+  }
 }
 
 void ZoneController::shutdown() {

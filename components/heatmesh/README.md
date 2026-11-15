@@ -25,16 +25,15 @@ The component is designed to work **completely independently** of Home Assistant
 ✅ **Local PI control** without external dependencies  
 ✅ **Sensor freshness tracking** and failsafe fallback  
 ✅ **Multi-zone support** on a single controller  
-✅ **Diagnostics** exposed as sensor/binary_sensor entities  
-✅ **Minimal YAML configuration** (no lambda replication)  
+✅ **Climate entity** per zone (HEAT/OFF, setpoint restored after reboot)  
+✅ **Diagnostics** exposed as native sensor/binary_sensor entities  
+✅ **Minimal YAML configuration** (no lambdas needed)  
 ✅ **Anti-windup integrator** to prevent actuator saturation  
 ✅ **Configurable control periods** and PWM timeproportional periods  
+✅ **Valve switch counting** for maintenance monitoring  
 
 ⏳ **Planned (v0.2+):**  
 - RS485-based multi-controller temperature sharing  
-- Climate entity for Home Assistant integration  
-- Persistent setpoint storage  
-- Valve switch cycle counting for maintenance alerts  
 
 ---
 
@@ -94,6 +93,10 @@ heatmesh:
       period_ms: 30000      # Control loop interval
       pwm_period_min: 15    # Time-proportional period in minutes
       min_on_time: 5min     # Shorter pulses are carried into later cycles
+      climate:
+        name: "Living Room"
+      heat_demand:
+        name: "Living Room Heat Demand"
 ```
 
 ---
@@ -106,15 +109,23 @@ heatmesh:
 heatmesh:
   zones:                    # List of controlled zones
     - zone_id: "ZONE_NAME"
+      id: zone_ctrl_1                   # Optional C++ id of the zone (for lambdas)
       temperature_sensor: SENSOR_ID
       valve: SWITCH_ID
-      target_temperature: 21.0          # Default setpoint (5–30°C)
+      target_temperature: 21.0          # Initial setpoint until the climate has stored one (5–30°C)
       sensor_timeout: "15min"           # Max age of valid sensor reading
       kp: 1.2                          # Proportional gain (0.1–10.0)
       ki: 0.001                        # Integral gain, %/(K·s); Ti = kp/ki
       period_ms: 30000                 # Control loop interval (1–120 sec)
       pwm_period_min: 15               # Time-proportional period (5–60 min)
       min_on_time: "5min"              # Shortest valve ON pulse (must be < pwm period)
+      # Optional Home Assistant entities (standard ESPHome entity options apply):
+      climate:            { name: "Zone" }
+      heat_demand:        { name: "Zone Heat Demand" }
+      sensor_age:         { name: "Zone Sensor Age" }
+      sensor_valid:       { name: "Zone Sensor Valid" }
+      valve_state:        { name: "Zone Valve State" }
+      valve_switch_count: { name: "Zone Valve Switches" }
 ```
 
 ### Zone Parameters
@@ -124,13 +135,19 @@ heatmesh:
 | `zone_id` | string | — | — | Unique identifier for diagnostics |
 | `temperature_sensor` | sensor_id | — | — | BLE/ESPHome temperature source |
 | `valve` | switch_id | — | — | GPIO switch for actuator output |
-| `target_temperature` | float | 21.0 | 5–30 | Desired room temperature (°C) |
+| `target_temperature` | float | 21.0 | 5–30 | Initial setpoint (°C); the climate entity's stored setpoint wins after first boot |
 | `sensor_timeout` | time | 15min | 30s–∞ | Max age before failsafe |
 | `kp` | float | 1.0 | 0.1–10 | Proportional gain |
 | `ki` | float | 0.001 | 0–1 | Integral gain, %/(K·s); Ti = kp/ki (anti-windup) |
 | `period_ms` | int | 30000 | 1s–2min | Control loop execution interval |
 | `pwm_period_min` | int | 15 | 5–60 | Time-proportional ON/OFF period |
 | `min_on_time` | time | 5min | > 0, < pwm period | Shortest valve ON pulse; shorter demand is carried to later cycles |
+| `climate` | climate | — | — | Optional thermostat entity (see below) |
+| `heat_demand` | sensor | — | — | Optional PI output (%) |
+| `sensor_age` | sensor | — | — | Optional seconds since last valid reading (diagnostic) |
+| `sensor_valid` | binary_sensor | — | — | Optional; ON while the reading is fresh (diagnostic) |
+| `valve_state` | binary_sensor | — | — | Optional electrical output command |
+| `valve_switch_count` | sensor | — | — | Optional output transitions since boot (diagnostic) |
 
 ---
 
@@ -180,33 +197,34 @@ Failsafe is **explicitly logged** and must be cleared when sensor recovers.
 
 ## Diagnostics & Home Assistant Integration
 
-The component exposes the following as ESPHome entities:
+Entities are declared directly under each zone; no template sensors or lambdas are needed.
+All entities are optional — regulation runs identically without them.
+
+### Climate (per zone)
+- Current temperature, target temperature (5–30 °C, step 0.5)
+- Modes: `HEAT` (regulating) and `OFF` (output forced OFF; sensor supervision continues)
+- Action: `heating` while the output is ON, `idle` otherwise
+- Mode and setpoint are stored in flash and restored after reboot. A setpoint change keeps
+  the integrator and takes effect from the next PWM cycle.
 
 ### Sensor Entities (per zone)
-- `<zone_id>_current_temp` — Current room temperature (°C)
-- `<zone_id>_setpoint` — Target temperature (°C)
-- `<zone_id>_heat_demand` — PI output (%)
-- `<zone_id>_sensor_age` — Time since last sensor update (ms)
-- `<zone_id>_valve_switches` — Cumulative actuator switch count
+- `heat_demand` — PI output (%), published every 10 s
+- `sensor_age` — Seconds since last valid temperature, published every 10 s
+- `valve_switch_count` — Output transitions since boot, published on change
 
 ### Binary Sensor Entities (per zone)
-- `<zone_id>_sensor_valid` — True if sensor reading is fresh
-- `<zone_id>_valve_state` — True if actuator is currently ON
+- `sensor_valid` — ON if the temperature reading is fresh
+- `valve_state` — ON while the output is commanded ON (not measured valve position)
 
-### Example YAML for Sensors
+### Lambda Access (optional)
 
 ```yaml
-sensor:
-  - platform: template
-    name: "Zone Temp"
-    lambda: |-
-      auto hm = esphome::heatmesh::HeatmeshComponent::get_instance();
-      if (hm) {
-        auto zone = hm->get_zone("living_room");
-        if (zone) return zone->get_current_temperature();
-      }
-      return NAN;
-    update_interval: 10s
+heatmesh:
+  id: heatmesh_controller
+# ...
+lambda: |-
+  auto *zone = id(heatmesh_controller).get_zone("living_room");
+  return zone ? zone->get_heat_demand_percent() : NAN;
 ```
 
 ---
@@ -243,8 +261,7 @@ sensor:
 - **High-side MOSFET outputs only** — Existing A16 hardware is high-side; low-side option deferred
 - **No proportional valve support** — Slow ON/OFF actuators only (PWM period ≥15 min)
 - **No RS485 multi-node in v0.1** — Single controller per YAML; node sharing planned for v0.3
-- **No persistent setpoint storage yet** — Setpoint reset at each boot (can be added later)
-- **No climate entity yet** — Diagnostics only; HA integration in v0.2
+- **Climate is a front-end only** — Regulation stays in the zone controller; HA is not required
 
 ### Intentional Scope Reductions
 - **Ethernet alternative deferred** — RS485 + BLE prioritized for v0.1 MVP
@@ -263,8 +280,8 @@ sensor:
 
 ### v0.2 — Multiple Zones, Full Diagnostics
 - [ ] Expand to 10+ zones on single controller
-- [ ] Climate entity with HEAT/OFF modes for HA
-- [ ] Persistent local setpoint storage
+- [x] Climate entity with HEAT/OFF modes for HA
+- [x] Persistent local setpoint storage
 - [ ] Enhanced HA dashboard template
 
 ### v0.3 — Multi-Controller RS485 Sharing

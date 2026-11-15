@@ -1,4 +1,4 @@
-# HeatMesh fix v0.1.1 - KC868-A16, one local BTHome v2 zone.
+# HeatMesh v0.1.2 - KC868-A16, one local BTHome v2 zone.
 # Bench-test this version before allowing it to control the heating system.
 # Location: <repo>/components/FloorheatCtrl_A16/a16_v01_singlezone.yaml
 
@@ -6,21 +6,11 @@ substitutions:
   sensor_01_friendly_name: "Badeværelse"
   sensor_01_mac_address: "A4:C1:38:14:28:EA"
   zone_id: test_living_room
+  zone_name: "Test Zone"
 
 esphome:
   name: floorheatctrl-v01
   friendly_name: FloorHeat_v01_SingleZone
-  on_boot:
-    priority: -100
-    then:
-      - lambda: |-
-          // Number restore publishes a value, but does not execute set_action.
-          auto *zone = id(heatmesh_controller).get_zone("${zone_id}");
-          if (zone != nullptr) {
-            zone->set_target_temperature(id(zone_setpoint).state);
-          } else {
-            ESP_LOGE("heatmesh_test", "Zone lookup failed after setup");
-          }
 
 esp32:
   variant: esp32
@@ -28,11 +18,13 @@ esp32:
     type: esp-idf
 
 logger:
-  level: INFO
+  # Per-tag levels may only be less verbose than the global level.
+  # DEBUG shows PI calculations and output decisions (heatmesh.zone) while tuning.
+  level: DEBUG
   baud_rate: 115200
   logs:
-    # PI and output decisions. Keep at DEBUG while tuning.
-    heatmesh.zone: DEBUG
+    bthome_mithermometer: INFO
+    esp32_ble_tracker: INFO
 
 
 api:
@@ -102,97 +94,35 @@ sensor:
       name: "${sensor_01_friendly_name} Battery"
       id: test_zone_battery
 
-  - platform: template
-    name: "Test Zone Current Temp"
-    unit_of_measurement: "\u00b0C"
-    accuracy_decimals: 2
-    lambda: |-
-      auto *zone = id(heatmesh_controller).get_zone("${zone_id}");
-      return zone ? zone->get_current_temperature() : NAN;
-    update_interval: 10s
-
-  - platform: template
-    name: "Test Zone Setpoint"
-    unit_of_measurement: "\u00b0C"
-    accuracy_decimals: 1
-    lambda: |-
-      auto *zone = id(heatmesh_controller).get_zone("${zone_id}");
-      return zone ? zone->get_target_temperature() : NAN;
-    update_interval: 10s
-
-  - platform: template
-    name: "Test Zone Heat Demand"
-    unit_of_measurement: "%"
-    accuracy_decimals: 1
-    lambda: |-
-      auto *zone = id(heatmesh_controller).get_zone("${zone_id}");
-      return zone ? zone->get_heat_demand_percent() : NAN;
-    update_interval: 10s
-
-  - platform: template
-    name: "Test Zone Sensor Age"
-    unit_of_measurement: "s"
-    accuracy_decimals: 0
-    lambda: |-
-      auto *zone = id(heatmesh_controller).get_zone("${zone_id}");
-      if (zone == nullptr || zone->get_sensor_age_ms() == UINT32_MAX) return NAN;
-      return zone->get_sensor_age_ms() / 1000.0f;
-    update_interval: 10s
-
-  - platform: template
-    name: "Test Zone Valve Switches"
-    accuracy_decimals: 0
-    lambda: |-
-      auto *zone = id(heatmesh_controller).get_zone("${zone_id}");
-      return zone ? static_cast<float>(zone->get_valve_switch_count()) : NAN;
-    update_interval: 60s
-
 heatmesh:
   id: heatmesh_controller
   zones:
     - zone_id: ${zone_id}
-      # Bench-test values, not yet validated on the real floor.
-      # kp: percentage points / K; ki: percentage points / (K * second), so Ti = kp / ki = 20 min.
       temperature_sensor: test_zone_temp
       valve: test_valve_y01
+      # Only used until the thermostat has stored a setpoint in flash.
       target_temperature: 21.0
       sensor_timeout: 15min
+      # Bench-test values, not yet validated on the real floor.
+      # kp: percentage points / K; ki: percentage points / (K * second), so Ti = kp / ki = 20 min.
       kp: 1.2
       ki: 0.001
       period_ms: 30000
       pwm_period_min: 15
       min_on_time: 5min
-
-binary_sensor:
-  - platform: template
-    name: "Test Zone Sensor Valid"
-    lambda: |-
-      auto *zone = id(heatmesh_controller).get_zone("${zone_id}");
-      return zone ? zone->get_sensor_valid() : false;
-
-  - platform: template
-    name: "Test Zone Valve State"
-    # Electrical ON/OFF command, not actual mechanical valve position.
-    lambda: |-
-      auto *zone = id(heatmesh_controller).get_zone("${zone_id}");
-      return zone ? zone->get_valve_state() : false;
-
-number:
-  - platform: template
-    id: zone_setpoint
-    name: "Test Zone Setpoint"
-    unit_of_measurement: "\u00b0C"
-    min_value: 5.0
-    max_value: 30.0
-    step: 0.5
-    initial_value: 21.0
-    optimistic: true
-    restore_value: true
-    set_action:
-      - lambda: |-
-          auto *zone = id(heatmesh_controller).get_zone("${zone_id}");
-          if (zone != nullptr) {
-            zone->set_target_temperature(x);
-          } else {
-            ESP_LOGE("heatmesh_test", "Cannot set setpoint: zone not initialized");
-          }
+      # Home Assistant entities. All are optional; regulation runs without them.
+      climate:
+        # Thermostat: current/target temperature, HEAT/OFF and heating/idle.
+        # Mode and setpoint are restored after reboot.
+        name: "${zone_name}"
+      heat_demand:
+        name: "${zone_name} Heat Demand"
+      sensor_age:
+        name: "${zone_name} Sensor Age"
+      sensor_valid:
+        name: "${zone_name} Sensor Valid"
+      valve_state:
+        # Electrical ON/OFF command, not actual mechanical valve position.
+        name: "${zone_name} Valve State"
+      valve_switch_count:
+        name: "${zone_name} Valve Switches"
