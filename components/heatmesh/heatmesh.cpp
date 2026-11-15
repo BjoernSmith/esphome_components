@@ -16,7 +16,8 @@ void HeatmeshComponent::setup() {
   for (const auto &cfg : zone_configs_) {
     auto zone = std::make_unique<ZoneController>(
         cfg.zone_id, cfg.temperature_sensor, cfg.valve_output, cfg.target_temperature,
-        cfg.sensor_timeout_ms, cfg.kp, cfg.ki, cfg.control_period_ms, cfg.pwm_period_min);
+        cfg.sensor_timeout_ms, cfg.kp, cfg.ki, cfg.control_period_ms, cfg.pwm_period_min,
+        cfg.min_on_time_ms);
     zone->setup();
     zones_.push_back(std::move(zone));
     ESP_LOGI(TAG, "  Zone '%s': target=%.1f C, timeout=%" PRIu32 " ms, kp=%.3f, ki=%.4f",
@@ -49,9 +50,11 @@ void HeatmeshComponent::dump_config() {
 void HeatmeshComponent::add_zone(const std::string &zone_id, sensor::Sensor *temperature_sensor,
                                 switch_::Switch *valve_output, float target_temperature,
                                 uint32_t sensor_timeout_ms, float kp, float ki,
-                                uint32_t control_period_ms, uint32_t pwm_period_min) {
+                                uint32_t control_period_ms, uint32_t pwm_period_min,
+                                uint32_t min_on_time_ms) {
   zone_configs_.push_back({zone_id, temperature_sensor, valve_output, target_temperature,
-                          sensor_timeout_ms, kp, ki, control_period_ms, pwm_period_min});
+                          sensor_timeout_ms, kp, ki, control_period_ms, pwm_period_min,
+                          min_on_time_ms});
 }
 
 ZoneController *HeatmeshComponent::get_zone(const std::string &zone_id) {

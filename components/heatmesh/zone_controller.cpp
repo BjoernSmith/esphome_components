@@ -12,11 +12,12 @@ static const char *const TAG = "heatmesh.zone";
 ZoneController::ZoneController(const std::string &zone_id, sensor::Sensor *temperature_sensor,
                                switch_::Switch *valve_output, float target_temperature,
                                uint32_t sensor_timeout_ms, float kp, float ki,
-                               uint32_t control_period_ms, uint32_t pwm_period_min)
+                               uint32_t control_period_ms, uint32_t pwm_period_min,
+                               uint32_t min_on_time_ms)
     : zone_id_(zone_id), temperature_sensor_(temperature_sensor), valve_output_(valve_output),
       target_temperature_(target_temperature), sensor_timeout_ms_(sensor_timeout_ms),
       kp_(kp), ki_(ki), control_period_ms_(control_period_ms),
-      pwm_period_ms_(pwm_period_min * 60000UL) {}
+      pwm_period_ms_(pwm_period_min * 60000UL), min_on_time_ms_(min_on_time_ms) {}
 
 void ZoneController::setup() {
   if (setup_complete_)
@@ -98,6 +99,7 @@ void ZoneController::stop_heating_(uint32_t now_ms) {
   heat_demand_ = 0.0f;
   integrator_ = 0.0f;
   pwm_on_time_ms_ = 0;
+  pwm_carry_ms_ = 0.0f;
   pwm_started_ = false;
   control_due_ = true;
   last_control_ms_ = now_ms;
@@ -132,6 +134,7 @@ void ZoneController::handle_timeproportional_output_(uint32_t now_ms) {
   if (heat_demand_ <= 0.0f || pwm_period_ms_ == 0) {
     pwm_started_ = false;
     pwm_on_time_ms_ = 0;
+    pwm_carry_ms_ = 0.0f;
     apply_valve_state_(false, now_ms);
     return;
   }
@@ -141,10 +144,22 @@ void ZoneController::handle_timeproportional_output_(uint32_t now_ms) {
     last_pwm_cycle_start_ms_ = now_ms;
     pwm_started_ = true;
     elapsed_ms = 0;
-    pwm_on_time_ms_ = static_cast<uint32_t>((heat_demand_ / 100.0f) * pwm_period_ms_);
+    pwm_on_time_ms_ = next_pwm_on_time_ms_();
   }
   // Positive demand is latched per PWM cycle; zero demand and faults stop immediately.
   apply_valve_state_(elapsed_ms < pwm_on_time_ms_, now_ms);
+}
+
+uint32_t ZoneController::next_pwm_on_time_ms_() {
+  // Pulses shorter than min_on_time_ms_ cannot move a slow actuator, so they are carried into later cycles.
+  const float wanted_ms = (heat_demand_ / 100.0f) * static_cast<float>(pwm_period_ms_) + pwm_carry_ms_;
+  if (wanted_ms < static_cast<float>(min_on_time_ms_)) {
+    pwm_carry_ms_ = wanted_ms;
+    return 0;
+  }
+  const float on_ms = std::min(wanted_ms, static_cast<float>(pwm_period_ms_));
+  pwm_carry_ms_ = wanted_ms - on_ms;
+  return static_cast<uint32_t>(on_ms);
 }
 
 void ZoneController::apply_valve_state_(bool state, uint32_t now_ms) {
@@ -174,9 +189,8 @@ void ZoneController::set_target_temperature(float temp) {
     return;
   ESP_LOGI(TAG, "[%s] Setpoint: %.1f -> %.1f C", zone_id_.c_str(), target_temperature_, temp);
   target_temperature_ = temp;
-  integrator_ = 0.0f;
+  // A setpoint change is not a fault: keep the integrator and the running PWM cycle.
   control_due_ = true;
-  pwm_started_ = false;
 }
 
 void ZoneController::shutdown() {

@@ -90,9 +90,10 @@ heatmesh:
       target_temperature: 21.0
       sensor_timeout: "15min"
       kp: 1.2
-      ki: 0.08
+      ki: 0.001
       period_ms: 30000      # Control loop interval
       pwm_period_min: 15    # Time-proportional period in minutes
+      min_on_time: 5min     # Shorter pulses are carried into later cycles
 ```
 
 ---
@@ -110,9 +111,10 @@ heatmesh:
       target_temperature: 21.0          # Default setpoint (5–30°C)
       sensor_timeout: "15min"           # Max age of valid sensor reading
       kp: 1.2                          # Proportional gain (0.1–10.0)
-      ki: 0.08                         # Integral gain (0–1.0)
+      ki: 0.001                        # Integral gain, %/(K·s); Ti = kp/ki
       period_ms: 30000                 # Control loop interval (1–120 sec)
       pwm_period_min: 15               # Time-proportional period (5–60 min)
+      min_on_time: "5min"              # Shortest valve ON pulse (must be < pwm period)
 ```
 
 ### Zone Parameters
@@ -125,9 +127,10 @@ heatmesh:
 | `target_temperature` | float | 21.0 | 5–30 | Desired room temperature (°C) |
 | `sensor_timeout` | time | 15min | 30s–∞ | Max age before failsafe |
 | `kp` | float | 1.0 | 0.1–10 | Proportional gain |
-| `ki` | float | 0.05 | 0–1 | Integral gain (anti-windup) |
+| `ki` | float | 0.001 | 0–1 | Integral gain, %/(K·s); Ti = kp/ki (anti-windup) |
 | `period_ms` | int | 30000 | 1s–2min | Control loop execution interval |
 | `pwm_period_min` | int | 15 | 5–60 | Time-proportional ON/OFF period |
+| `min_on_time` | time | 5min | > 0, < pwm period | Shortest valve ON pulse; shorter demand is carried to later cycles |
 
 ---
 
@@ -146,6 +149,8 @@ output = p_term + i_term  (clamped to 0–100%)
 
 **Anti-windup:** Integrator is limited to ±100%, preventing saturation when the actuator is stuck.
 
+**Setpoint changes** keep the integrator and the running PWM cycle. The new demand takes effect at the next PWM cycle.
+
 ### Time-Proportional Output
 
 The continuous PI output (0–100%) is converted to discrete ON/OFF actuator commands using a **long PWM period** (default: 15 minutes):
@@ -156,6 +161,8 @@ OFF_time = period_ms - ON_time
 
 Valve is switched ON for ON_time, then OFF for OFF_time, repeatedly.
 ```
+
+Pulses shorter than `min_on_time` are not sent to the valve. Their on-time is carried into later cycles, so the average still matches demand, but a slow actuator never receives a pulse too short to move it.
 
 This approach preserves actuator lifespan (vs. fast PWM) while providing smooth control.
 

@@ -22,6 +22,7 @@ CONF_KP = "kp"
 CONF_KI = "ki"
 CONF_PERIOD_MS = "period_ms"
 CONF_PWM_PERIOD_MIN = "pwm_period_min"
+CONF_MIN_ON_TIME = "min_on_time"
 
 
 def _finite(value):
@@ -53,6 +54,8 @@ def _validate_zones(zones):
             raise cv.Invalid(f"Valve {valve_id} is assigned to more than one zone")
         names.add(name)
         valves.add(valve_id)
+        if zone[CONF_MIN_ON_TIME].total_milliseconds >= zone[CONF_PWM_PERIOD_MIN] * 60000:
+            raise cv.Invalid(f"min_on_time must be shorter than pwm_period_min in zone {name}")
     return zones
 
 
@@ -65,9 +68,11 @@ ZONE_SCHEMA = cv.Schema(
         cv.Optional(CONF_SENSOR_TIMEOUT, default="15min"): _sensor_timeout,
         # Gains retain the original units: percentage points / K, and / (K*s).
         cv.Optional(CONF_KP, default=1.0): cv.All(cv.float_range(min=0.1, max=10.0), _finite),
-        cv.Optional(CONF_KI, default=0.05): cv.All(cv.float_range(min=0.0, max=1.0), _finite),
+        cv.Optional(CONF_KI, default=0.001): cv.All(cv.float_range(min=0.0, max=1.0), _finite),
         cv.Optional(CONF_PERIOD_MS, default=30000): cv.int_range(min=1000, max=120000),
         cv.Optional(CONF_PWM_PERIOD_MIN, default=15): cv.int_range(min=5, max=60),
+        # Pulses shorter than this are carried into later PWM cycles.
+        cv.Optional(CONF_MIN_ON_TIME, default="5min"): cv.positive_time_period_milliseconds,
     }
 )
 
@@ -99,5 +104,6 @@ async def to_code(config):
                 zone_conf[CONF_KI],
                 zone_conf[CONF_PERIOD_MS],
                 zone_conf[CONF_PWM_PERIOD_MIN],
+                zone_conf[CONF_MIN_ON_TIME].total_milliseconds,
             )
         )

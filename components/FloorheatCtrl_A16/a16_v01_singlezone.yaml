@@ -1,10 +1,11 @@
 # HeatMesh fix v0.1.1 - KC868-A16, one local BTHome v2 zone.
 # Bench-test this version before allowing it to control the heating system.
-# Location: <repo>/components/FloorheatCtrl_A16/a16_v01_singlezone_fixed.yaml
+# Location: <repo>/components/FloorheatCtrl_A16/a16_v01_singlezone.yaml
 
 substitutions:
   sensor_01_friendly_name: "Badeværelse"
   sensor_01_mac_address: "A4:C1:38:14:28:EA"
+  zone_id: test_living_room
 
 esphome:
   name: floorheatctrl-v01
@@ -14,7 +15,7 @@ esphome:
     then:
       - lambda: |-
           // Number restore publishes a value, but does not execute set_action.
-          auto *zone = id(heatmesh_controller).get_zone("test_living_room");
+          auto *zone = id(heatmesh_controller).get_zone("${zone_id}");
           if (zone != nullptr) {
             zone->set_target_temperature(id(zone_setpoint).state);
           } else {
@@ -27,15 +28,18 @@ esp32:
     type: esp-idf
 
 logger:
-  level: DEBUG
+  level: INFO
   baud_rate: 115200
+  logs:
+    # PI and output decisions. Keep at DEBUG while tuning.
+    heatmesh.zone: DEBUG
+
 
 api:
   # Local control must not reboot because HA is disconnected.
   reboot_timeout: 0s
   encryption:
-    key: "Jz1iqf+aWVi0rwF+tL+4p/HCLZ47yd7EfxSvPjgSgZc="
-
+    key: !secret floorheatctrl_v01__encryption_key
 ota:
   - platform: esphome
     # Optional: password: !secret ota_password
@@ -43,7 +47,6 @@ ota:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  reboot_timeout: 0s
   power_save_mode: NONE
 
 esp32_ble_tracker:
@@ -90,10 +93,6 @@ sensor:
     temperature:
       name: "${sensor_01_friendly_name} Temp"
       id: test_zone_temp
-      on_value:
-        then:
-          - lambda: |-
-              ESP_LOGD("heatmesh.input", "BTHome temperature published: %.2f C", x);
       # No heartbeat, timeout-generated values or repeated template values here:
       # the component's freshness timeout follows real sensor publications.
     humidity:
@@ -108,7 +107,7 @@ sensor:
     unit_of_measurement: "\u00b0C"
     accuracy_decimals: 2
     lambda: |-
-      auto *zone = id(heatmesh_controller).get_zone("test_living_room");
+      auto *zone = id(heatmesh_controller).get_zone("${zone_id}");
       return zone ? zone->get_current_temperature() : NAN;
     update_interval: 10s
 
@@ -117,7 +116,7 @@ sensor:
     unit_of_measurement: "\u00b0C"
     accuracy_decimals: 1
     lambda: |-
-      auto *zone = id(heatmesh_controller).get_zone("test_living_room");
+      auto *zone = id(heatmesh_controller).get_zone("${zone_id}");
       return zone ? zone->get_target_temperature() : NAN;
     update_interval: 10s
 
@@ -126,7 +125,7 @@ sensor:
     unit_of_measurement: "%"
     accuracy_decimals: 1
     lambda: |-
-      auto *zone = id(heatmesh_controller).get_zone("test_living_room");
+      auto *zone = id(heatmesh_controller).get_zone("${zone_id}");
       return zone ? zone->get_heat_demand_percent() : NAN;
     update_interval: 10s
 
@@ -135,7 +134,7 @@ sensor:
     unit_of_measurement: "s"
     accuracy_decimals: 0
     lambda: |-
-      auto *zone = id(heatmesh_controller).get_zone("test_living_room");
+      auto *zone = id(heatmesh_controller).get_zone("${zone_id}");
       if (zone == nullptr || zone->get_sensor_age_ms() == UINT32_MAX) return NAN;
       return zone->get_sensor_age_ms() / 1000.0f;
     update_interval: 10s
@@ -144,37 +143,38 @@ sensor:
     name: "Test Zone Valve Switches"
     accuracy_decimals: 0
     lambda: |-
-      auto *zone = id(heatmesh_controller).get_zone("test_living_room");
+      auto *zone = id(heatmesh_controller).get_zone("${zone_id}");
       return zone ? static_cast<float>(zone->get_valve_switch_count()) : NAN;
     update_interval: 60s
 
 heatmesh:
   id: heatmesh_controller
   zones:
-    - zone_id: test_living_room
+    - zone_id: ${zone_id}
+      # Bench-test values, not yet validated on the real floor.
+      # kp: percentage points / K; ki: percentage points / (K * second), so Ti = kp / ki = 20 min.
       temperature_sensor: test_zone_temp
       valve: test_valve_y01
       target_temperature: 21.0
       sensor_timeout: 15min
-      # Original tuning retained, NOT validated as suitable for the real floor.
-      # kp: percentage points / K; ki: percentage points / (K * second).
       kp: 1.2
-      ki: 0.08
+      ki: 0.001
       period_ms: 30000
       pwm_period_min: 15
+      min_on_time: 5min
 
 binary_sensor:
   - platform: template
     name: "Test Zone Sensor Valid"
     lambda: |-
-      auto *zone = id(heatmesh_controller).get_zone("test_living_room");
+      auto *zone = id(heatmesh_controller).get_zone("${zone_id}");
       return zone ? zone->get_sensor_valid() : false;
 
   - platform: template
     name: "Test Zone Valve State"
     # Electrical ON/OFF command, not actual mechanical valve position.
     lambda: |-
-      auto *zone = id(heatmesh_controller).get_zone("test_living_room");
+      auto *zone = id(heatmesh_controller).get_zone("${zone_id}");
       return zone ? zone->get_valve_state() : false;
 
 number:
@@ -190,7 +190,7 @@ number:
     restore_value: true
     set_action:
       - lambda: |-
-          auto *zone = id(heatmesh_controller).get_zone("test_living_room");
+          auto *zone = id(heatmesh_controller).get_zone("${zone_id}");
           if (zone != nullptr) {
             zone->set_target_temperature(x);
           } else {

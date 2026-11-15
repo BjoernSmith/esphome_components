@@ -21,6 +21,7 @@ struct ZoneConfig {
   float ki;
   uint32_t control_period_ms;
   uint32_t pwm_period_min;
+  uint32_t min_on_time_ms;
 };
 
 class HeatmeshComponent : public Component {
@@ -35,7 +36,7 @@ class HeatmeshComponent : public Component {
   void add_zone(const std::string &zone_id, sensor::Sensor *temperature_sensor,
                 switch_::Switch *valve_output, float target_temperature,
                 uint32_t sensor_timeout_ms, float kp, float ki,
-                uint32_t control_period_ms, uint32_t pwm_period_min);
+                uint32_t control_period_ms, uint32_t pwm_period_min, uint32_t min_on_time_ms);
 
   ZoneController *get_zone(const std::string &zone_id);
   size_t get_zone_count() const { return zones_.size(); }
