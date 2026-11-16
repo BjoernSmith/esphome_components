@@ -30,4 +30,5 @@ Enheden hedder `FloorHeat A16` i Home Assistant (`friendly_name`). `esphome.name
 - Failsafe er fast OFF; der er ikke en konfigurerbar HEAT-failsafe.
 - Alle endelige temperaturværdier accepteres indtil videre; plausibilitetsgrænser mangler.
 - Telestaternes strøm og åbne-/lukketid er ikke målt og dokumenteret; `min_on_time` og PWM er derfor startværdier.
+- PWM-perioden er 240 min med min. ON 30 min. ON-tiden låses ved cyklusstart, så et stigende varmebehov kan vente op til 4 timer, og en startet puls stopper først, når demand når 0 %. Hæv setpoint for straks at få varme (boost).
 - YAML henter komponenten fra GitHub `main`; commit/push nødvendige ændringer før deployment fra en anden maskine.

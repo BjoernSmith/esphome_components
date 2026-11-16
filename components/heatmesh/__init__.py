@@ -109,7 +109,7 @@ ZONE_SCHEMA = cv.Schema(
         cv.Optional(CONF_KP, default=100.0): cv.All(cv.float_range(min=0.1, max=1000.0), _finite),
         cv.Optional(CONF_KI, default=0.028): cv.All(cv.float_range(min=0.0, max=1.0), _finite),
         cv.Optional(CONF_PERIOD_MS, default=30000): cv.int_range(min=1000, max=120000),
-        cv.Optional(CONF_PWM_PERIOD_MIN, default=15): cv.int_range(min=30, max=300),
+        cv.Optional(CONF_PWM_PERIOD_MIN, default=240): cv.int_range(min=30, max=300),
         # Pulses shorter than this are carried into later PWM cycles.
         cv.Optional(CONF_MIN_ON_TIME, default="30min"): cv.positive_time_period_milliseconds,
         # A zero duration disables the minimum OFF interval.

@@ -1,6 +1,6 @@
 # Verifikation — HeatMesh v0.2.0
 
-**Opdateret:** 2026-11-15
+**Opdateret:** 2026-11-16
 Markér kun A16-punkter efter fysisk test. Host-testresultater er softwareverifikation, ikke dokumentation for korrekt tilsluttet A16/telestat.
 
 ## Bekræftet på A16 (oplyst af brugeren)
@@ -15,6 +15,7 @@ Måledata og testdetaljer er ikke registreret; udfyld tabellen nederst ved næst
 ## Software verificeret
 
 - [x] Python schema/codegen og ESPHome-konfiguration accepteres for reference-YAML'en.
+- [x] Schema-defaults: en zone uden `pwm_period_min`/`min_on_time` accepteres med 240 min/30 min (`esphome config`, ESPHome 2026.10.2).
 - [x] Host-test `tests/heatmesh/test_min_off_time.cpp` består: min. OFF-tid (inkl. `millis()`-rollover), boost og failsafe, boost min. ON-hold, boost annulleret før ON, 100 % demand og genstart.
 - [x] Tidligere host-simulering (v0.1.2): HEAT/OFF, setpoint/mode-restore, timeout og recovery.
 - [x] Reference-YAML har ingen lambdas eller template climate/number/diagnostic entities.
@@ -28,6 +29,7 @@ Push commit med kode og YAML til `main`, før HA bygger ny firmware.
 - [ ] Boost min. ON-hold: når setpoint nås kort efter boost-start, forbliver udgangen ON i mindst `min_on_time`.
 - [ ] Sænket setpoint til ≤ rumtemperatur under boost: udgangen slukker straks.
 - [ ] Konfigureret `min_off_time` (> 0): PWM venter, boost overstyrer, og sensorfejl/OFF stopper straks.
+- [ ] Lang PWM-cyklus (240 min, min. ON 30 min): ON-tid = `demand × 240 min` ved cyklusstart og holdes cyklussen ud; demand < 12,5 % giver carry-over. Notér reaktionstid og overshoot.
 - [ ] Genstart: mode og setpoint gendannes per zone; uden gemt state forventes HEAT og 21 °C.
 - [ ] Watchdog/reboot: enheden kommer op med alle udgange OFF og genoptager regulering efter friske målinger.
 - [ ] Sensortab: stop én sensor; efter 15 min er kun den zones `Sensor Valid` og udgang OFF.

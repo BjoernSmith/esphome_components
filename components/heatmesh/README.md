@@ -19,8 +19,8 @@ heatmesh:
       kp: 100
       ki: 0.028
       period_ms: 30000
-      pwm_period_min: 15
-      min_on_time: 5min
+      pwm_period_min: 240
+      min_on_time: 30min
       min_off_time: 0s
       boost_time: 30min
       climate:
@@ -48,21 +48,23 @@ Påkrævet per zone: `zone_id`, `temperature_sensor`, `valve`. Kontrolparametre 
 | `kp` | 100 | 0.1–1000, procentpoint/K (100 = 1 K under setpoint giver 100 %) |
 | `ki` | 0.028 | 0–1, procentpoint/(K·s) |
 | `period_ms` | 30,000 | 1,000–120,000 ms |
-| `pwm_period_min` | 15 | 5–60 min |
-| `min_on_time` | 5 min | Positiv; skal være kortere end PWM-perioden |
+| `pwm_period_min` | 240 | 30–300 min |
+| `min_on_time` | 30 min | Positiv; skal være kortere end PWM-perioden (ved `pwm_period_min: 30` skal den sættes lavere end default) |
 | `min_off_time` | 0 s | `0s` deaktiverer; højst 24 timer |
 | `boost_time` | 30 min | `0s` slår boost fra; ellers mindst `min_on_time` |
 
-Default og reference-YAML: `kp: 100`, `ki: 0.028`, dvs. fuld demand ved 1 K under setpoint og en integraltid `Kp/Ki` på ca. 60 min. Det er startværdier, ikke endeligt indreguleret på gulvet.
+Default og reference-YAML: `kp: 100`, `ki: 0.028`, dvs. fuld demand ved 1 K under setpoint og en integraltid `Kp/Ki` på ca. 60 min, samt 240 min PWM-periode og 30 min min. ON-tid. Det er startværdier, ikke endeligt indreguleret på gulvet.
 
 ## Regulering og failsafe
 
 - PI: `error = target - temperature`; output begrænses til 0–100 % med anti-windup. Integratoren vokser ikke, mens P alene giver ≥100 % (≥1 K under setpoint med defaults).
-- Positive demand konverteres til én ON-puls per PWM-periode; under 1 K fejl giver P delvis demand, og I bygger op, så små fejl giver en puls inden for ca. en time.
-- Beregnede pulser kortere end `min_on_time` akkumuleres (carry-over) til senere cyklusser.
+- Ved starten af hver PWM-cyklus omsættes demand til én ON-puls (`demand × periode`). Pulsens længde låses for hele cyklussen: stiger demand, eller sænkes setpoint, men stadig over rumtemperaturen, slår det først igennem ved næste cyklusstart.
+- En cyklus afbrydes og genstartes kun, når demand når 0 % (udgang OFF straks; næste positive demand starter en ny cyklus, med forbehold for `min_off_time`), ved boost, ved setpoint ≤ rumtemperatur, OFF-mode og sensorfejl.
+- Beregnede pulser kortere end `min_on_time` akkumuleres (carry-over) til senere cyklusser. Med defaults giver demand under 12,5 % (30/240 min) ingen puls i den aktuelle cyklus.
+- Konsekvens af 240 min periode: faldende rumtemperatur kan vente op til en hel cyklus på reaktion, så længe demand er over 0 %. En startet puls fortsætter, indtil demand når 0 %, dvs. når temperaturen er ca. `I/Kp` over setpoint. I bygger fortsat op under en låst cyklus og kan give en længere puls i næste cyklus. Adfærden er dokumenteret, men ikke ændret; den skal observeres på gulvet.
 - Efter et udgangsskift til OFF forsinker `min_off_time` næste normale PWM-start. En forsinket cyklus begynder først, når tiden er udløbet; tabt varmetid under ventetiden akkumuleres ikke. PI fortsætter med at regulere under ventetiden.
 - Boost overstyrer `min_off_time` og kan tænde straks. Efter genstart huskes tidligere OFF-tid ikke, så normal regulering kan starte ved første friske sensormåling. OFF-mode og sensorfejl slukker altid straks; efterfølgende normal regulering respekterer OFF-tiden.
-- **Boost:** Hæves setpoint over rumtemperaturen, eller skiftes OFF → HEAT under setpoint, tændes udgangen straks i op til `boost_time`. I er frosset under boost; derefter starter PI en ny PWM-cyklus. Boost stopper tidligt, når setpoint nås, men først når udgangen har været ON i mindst `min_on_time`. Nås setpoint, før udgangen er tændt, annulleres boost uden puls.
+- **Boost:** Hæves setpoint over rumtemperaturen, eller skiftes OFF → HEAT under setpoint, tændes udgangen straks i op til `boost_time`. I er frosset under boost; derefter starter PI en ny PWM-cyklus. Boost stopper tidligt, når setpoint nås, men først når udgangen har været ON i mindst `min_on_time`. Nås setpoint, før udgangen er tændt, annulleres boost uden puls. Med defaults er `boost_time` og `min_on_time` begge 30 min, så en tændt boost kører i praksis hele boost-tiden.
 - Sænkes setpoint til ≤ rumtemperaturen, nulstilles I og carry-over, og udgangen slukker. Sænkes det, men stadig over rumtemperaturen, fortsætter PI med bevaret I.
 - Climate OFF, ikke-finite måling eller sensor-timeout tvinger udgangen OFF straks, afbryder boost og nulstiller integrator/carry-over.
 - Sensoren skal publicere en ny måling efter opstart; en cached state alene tæller ikke som frisk.

@@ -1,6 +1,6 @@
 # HeatMesh v0.2.0 — teknisk status
 
-**Dato:** 2026-11-15
+**Dato:** 2026-11-16
 **Status:** v0.2 under udvikling. Tre zoner kører på A16; plausibilitetskontrol og robusthedstests (genstart, sensortab, HA-frakobling) mangler.
 
 ## Arkitektur
@@ -14,7 +14,7 @@ ZoneController (én instans per zone, ingen kopieret reguleringskode)
     ├─ freshness/timeout og failsafe OFF
     ├─ PI + anti-windup → heat demand 0–100 %
     ├─ boost: straks ON ved hævet setpoint, min. ON-hold
-    ├─ 15 min tidsproportional udgang; korte pulser carry-over; valgfri min. OFF-tid
+    ├─ 240 min tidsproportional udgang (ON-tid låst per cyklus); korte pulser carry-over; valgfri min. OFF-tid
     └─ ESPHome valve switch (Y01–Y03)
 
 Valgfri ZoneClimate + native diagnostic entities per zone
@@ -27,10 +27,11 @@ Valgfri ZoneClimate + native diagnostic entities per zone
 
 - `error = target - measured`; `demand = clamp(Kp × error + integrator, 0, 100 %)`.
 - Integratoren opdateres i sekunder og har betinget anti-windup: den vokser ikke, mens P alene giver ≥ 100 %.
-- Reference-YAML og defaults: `Kp=100 %/K`, `Ki=0.028 %/(K·s)` (Ti ≈ 60 min), loop 30 s, PWM 15 min, min. ON 5 min, min. OFF 0 s, boost 30 min, timeout 15 min.
-- Demand omsættes til én ON-puls per PWM-periode. Pulser kortere end `min_on_time` akkumuleres (carry-over) til senere cyklusser.
+- Reference-YAML og defaults: `Kp=100 %/K`, `Ki=0.028 %/(K·s)` (Ti ≈ 60 min), loop 30 s, PWM 240 min (tilladt 30–300), min. ON 30 min, min. OFF 0 s, boost 30 min, timeout 15 min.
+- Demand omsættes ved cyklusstart til én ON-puls (`demand × periode`), som holdes hele cyklussen. Pulser kortere end `min_on_time` akkumuleres (carry-over) til senere cyklusser; med defaults giver demand under 12,5 % ingen puls i cyklussen.
+- Cyklussen genstartes kun ved demand 0 %, boost, setpoint ≤ rumtemperatur, OFF og sensorfejl. Med 240 min periode kan et stigende varmebehov derfor vente op til en hel cyklus, og en startet puls stopper først ved demand 0 % (ca. `I/Kp` over setpoint). Det er dokumenteret, men ikke ændret.
 - `min_off_time` (> 0) forsinker næste normale PWM-start efter en OFF-overgang. Boost og genstart overstyrer ventetiden.
-- **Boost:** Setpoint hævet over rumtemperaturen (eller OFF → HEAT under setpoint) tænder udgangen straks i op til `boost_time` med frosset I. Når setpoint nås, slutter boost først, når udgangen har været ON i mindst `min_on_time`; nås setpoint, før udgangen er tændt, annulleres boost uden puls. Derefter starter PI en ny PWM-cyklus.
+- **Boost:** Setpoint hævet over rumtemperaturen (eller OFF → HEAT under setpoint) tænder udgangen straks i op til `boost_time` med frosset I. Når setpoint nås, slutter boost først, når udgangen har været ON i mindst `min_on_time`; nås setpoint, før udgangen er tændt, annulleres boost uden puls. Derefter starter PI en ny PWM-cyklus. Med `boost_time` = `min_on_time` = 30 min kører en tændt boost i praksis hele boost-tiden.
 - Setpoint sænket til ≤ rumtemperatur: boost afbrydes, I og carry-over nulstilles, og udgangen slukker straks. Sænket, men stadig over rumtemperatur: PI fortsætter med bevaret I.
 - OFF-mode, ugyldig måling eller timeout tvinger udgangen OFF med det samme, afbryder boost og rydder integrator og carry-over.
 - Sensor-age måles fra reelle state-callbacks. En præ-cached værdi ved boot regnes ikke som ny frisk måling.
@@ -58,7 +59,7 @@ Valve state er den elektriske kommando, ikke feedback om ventilens mekaniske pos
 
 - Brugeren har bygget firmwaren med ESPHome 2026.10.2 og kører tre zoner på A16; isoleret zonefejl og hardwareopsætning er bekræftet.
 - Host-testen `tests/heatmesh/test_min_off_time.cpp` kører den rigtige `zone_controller.cpp` mod stub-headers og dækker min. OFF-tid (inkl. `millis()`-rollover), boost/failsafe, boost min. ON-hold, 100 % demand og genstart.
-- Boost min. ON-hold (ændret efter commit `6cfeb94`) er host-testet, men endnu ikke bygget til ESP32 eller testet på A16.
+- Boost min. ON-hold samt PWM 240 min/min. ON 30 min (commit `d67e22f`) er host-testet henholdsvis schema-valideret, men endnu ikke verificeret på A16. Host-testen bruger egne tidsværdier (15 min PWM, 5 min ON) og tester logikken, ikke schema-grænserne.
 
 Se [VERIFICATION_CHECKLIST.md](VERIFICATION_CHECKLIST.md) for afgrænsning af tests og resterende arbejde.
 

@@ -228,6 +228,80 @@ Node-til-node-transport skal kunne fungere uden synkroniseret NTP. Hvis absolutt
 - Sensorer registreres én gang logisk; en temperaturværdi skal kun påvirke zoneregulatoren for de zoner, der er tilknyttet sensoren.
 - Eventuel plausibilitetsfiltrering og støjfiltrering skal være konfigurerbar og må ikke skjule stale data.
 
+### Idé til senere udvikling: MAC-nøglet sensorpulje — IKKE BESLUTTET
+
+> Kun data til senere udvikling. Afsnittet ændrer ikke transportvalg, RS485-busdetaljer, busadgang eller arbejdsplanen i §8.
+
+**Problem:** Med `packet_transport` skal hver fjernsensor konfigureres på modtageren med afsendernode (`provider`) og afsenderens sensor-ID (`remote_id`). Med 13 kredse fordelt på to noder bliver det mange par, som skal holdes ens i to YAML-filer.
+
+**Idé:** Hver node lægger de BTHome-målinger, den selv hører, i en fælles pulje nøglet på sensorens BLE-MAC. Peer-noden modtager hele puljen og bruger kun de MAC'er, dens zoner er tilknyttet. En zone peger alene på en MAC; hvilken node der hørte sensoren, er ligegyldigt.
+
+**Principper:**
+
+1. Hver node sender periodisk én frame med én post per sensor, den **selv** har hørt: MAC (6 byte), temperatur (evt. fugt og batteri), målingens alder ved afsendelse og origin `node_id`.
+2. Modtageren gemmer posterne i en tabel nøglet på MAC: værdi, måletidspunkt i egen tidsbase (modtagetid minus alder), origin-node og lokal/fjern.
+3. Zonen bruger nyeste gyldige måling for sin MAC med lokal måling som tie-breaker ved omtrent samme alder (jf. *Sensorprioritet* ovenfor).
+4. Kun egne målinger sendes; modtagne fjernmålinger videresendes aldrig. Det udelukker forwarding-loops, og alderen kan ikke nulstilles undervejs.
+5. Stopper en BLE-sensor med at sende, vokser dens alder på begge noder, og zonens `sensor_timeout` udløser den eksisterende failsafe (udgang OFF).
+
+Dermed dækkes kravene om alder/gyldighed, loop-forbud og "en videresendt gammel måling må aldrig fremstå som ny" uden synkroniseret ur.
+
+**Konfigurationskoncept — PSEUDO-YAML, ikke implementeret:**
+
+```yaml
+heatmesh:
+  node_id: 1
+  transport:                       # som konceptet i §7; uændret
+    ...
+  sensors:                         # samme liste på begge noder, fx via !include
+    - mac: A4:C1:38:14:28:EA
+      temperature: zone1_temp      # lokal bthome_mithermometer-entitet
+    - mac: A4:C1:38:BA:4E:58
+      temperature: zone2_temp
+  zones:
+    - id: living_room
+      sensor_mac: A4:C1:38:14:28:EA
+      valve: valve_1
+```
+
+- En ny sensor kræver én linje i den fælles liste og én reference i zonen; ingen afsender/modtager-par.
+- Begge noder lytter efter alle MAC'er i listen (samme `bthome_mithermometer`-blokke), så hver node kan bidrage med det, den hører.
+- Listen fungerer som whitelist: naboers BTHome-enheder kommer ikke i puljen, og frames forbliver små.
+
+**Framestørrelse:** ca. 15 byte per post (MAC 6, temperatur 2, fugt 1, batteri 1, alder 3, flag/kvalitet 2) plus header med `node_id`, sekvensnummer og CRC. 13 sensorer ≈ 200 byte, dvs. ca. 0,1 s på bussen ved 19.200 baud og ca. 0,2 s ved 9.600 baud (8N1). Busadgang følger de eksisterende regler ovenfor; puljen ændrer dem ikke.
+
+**Dubletter:** Samme advertisement kan høres af begge noder. Puljen håndterer det via alder (nyeste vinder). ESPHomes `bthome_mithermometer` (2026.10.2) bruger BTHome packet-id internt til at afvise gentagelser, men eksponerer det ikke; packet-id kan derfor kun indgå i puljen, hvis HeatMesh senere selv dekoder BTHome.
+
+**Observationer i ESPHome 2026.10.2-kildekoden (`packet_transport`):**
+
+- Hver fjernsensor kræver `provider` og `remote_id` på modtageren.
+- Afsenderen sender ved ændring og gensender **alle** sensorers seneste værdi hver `update_interval` (default 15 s), også hvis kildesensoren er holdt op med at sende. Modtageren publicerer værdien igen, så en stale BLE-sensor på afsendernoden ser frisk ud på modtageren.
+- Pakken bærer ingen alder eller origin-metadata.
+- Kabelbrud eller død peer opdages derimod: der kommer ingen pakker, og zonens timeout udløses.
+
+Uden ekstra tiltag opfylder `packet_transport` altså ikke verifikationspunkt 3 (oprindelig alder/gyldighed). Arkitekturreglen om at undgå en ny protokol gælder fortsat; puljen er kandidat, hvis den officielle løsning ikke kan opfylde kravet.
+
+**Placering i arkitekturen:** Puljen er en konkret udgave af *Sensor input/registry* i §7 og ligger over det planlagte transport-interface. Adaptere for UART/RS485 og eventuelt UDP ligger under det og kan udskiftes uden at ændre puljen eller regulatoren.
+
+**Estimat og risici:**
+
+- Ca. 400–600 linjer C++: pulje/registry, frame-encode/decode med CRC og sekvensnummer samt én adapter per transport.
+- Host-tests: alderberegning, dubletter fra begge noder, timeout, loop-forbud og afvisning af korrupte frames.
+- Ingen kryptering; acceptabelt på et dedikeret kabel mellem to noder.
+- Mulig senere udvidelse: HeatMesh dekoder selv BTHome v2 fra BLE, så kun MAC skal konfigureres. Enkelt for ukrypterede PVVX-sensorer; kryptering kræver bindkey per sensor. Det afviger fra anbefalingen i §7 om at bruge ESPHomes `bthome_mithermometer` og er derfor kun en idé.
+
+### Til senere udvikling: konfigurerbar master/slave med 30 s udveksling
+
+**Brugerpræference:** De to noder skal have en eksplicit rolleindstilling: én master og én slave. Eksempelvis `role: master` / `role: slave` (kun koncept, ikke eksisterende YAML-API). Rollen gælder kommunikationen, ikke ejerskab af sensorer eller regulering.
+
+- Master starter en udveksling hver **30 s** ved at sende de seneste målinger fra sine egne lokale sensorer med identitet, alder og gyldighed. Denne transmission fungerer samtidig som forespørgsel til slave.
+- Når den komplette, gyldige forespørgsel er modtaget, og master har frigivet bussen, svarer slave med sine egne lokale sensorers seneste målinger og metadata. Slave sender ikke uopfordret; fjernmålinger videresendes ikke.
+- Udvekslingen gennemføres også uden nye målinger eller med en tom lokal sensorliste, så manglende lokale data ikke forhindrer forespørgsel/svar.
+- Ved normal kommunikation får begge noder dermed opdateret deres fælles datasæt én gang per 30 s-cyklus, efter transmission og svar. **Det er ikke en garanti for en ny BLE-måling hver 30 s.** Gensendte værdier beholder deres oprindelige alder; pakketid må aldrig nulstille sensorens freshness eller timeout.
+- Ventetid på svar skal være afgrænset og ikke blokere reguleringen. Ved manglende svar ældes fjernmålingerne fortsat frem mod zonens eksisterende timeout/failsafe; gyldige lokale målinger bruges uafhængigt af peer.
+
+Dette er en præcisering af den ønskede senere polling-adfærd, ikke implementeret funktionalitet eller en ændring af milepæle, fysisk kabling, pins eller baudrate. Konkret framing, retningsskift/svartid, timeout og håndtering af forsinkede/dobbelte svar skal afklares og testes som del af det eksisterende transportarbejde.
+
 ---
 
 ## 5. Regulering af telestater
@@ -255,6 +329,41 @@ Node-til-node-transport skal kunne fungere uden synkroniseret NTP. Hvis absolutt
 
 **Vigtig algoritmisk detalje:** En fast PWM-periode og et krav om minimum ON/OFF kan modstride hinanden ved små duty cycles. Komponenten skal derfor have en tydelig strategi: f.eks. samle duty over længere vinduer, springe perioder over eller bruge hysterese nær setpunkt, frem for at generere korte pulser. Ingen af disse strategier er endnu endeligt valgt.
 
+### Planlagt senere ændring: tidlig cyklusstart — IKKE IMPLEMENTERET
+
+> Besluttet som senere ændring; milepæl er ikke fastlagt, og arbejdsplanen i §8 er ikke ændret. Nuværende firmware låser ON-tiden per PWM-cyklus.
+
+**Problem:** Med lang PWM-periode (reference 240 min) bruges et stigende varmebehov først ved næste cyklusstart. Efter en kort puls, eller en cyklus uden puls fordi demand var under ca. 12,5 % ved cyklusstart, kan ventilen derfor blive ved med at være OFF i op til en hel periode, selv om demand i mellemtiden er højt.
+
+**Hvorfor ikke en simpel grænse:** En regel som "ventil OFF og demand ≥ 50 % → start nu" ødelægger normal drift. Ved konstant 60 % demand slutter pulsen på 144 min, demand er stadig over grænsen, og ventilen tændes straks igen; i praksis kører den så ca. 100 %.
+
+**Regel:** Mens ventilen er OFF i en cyklus (pulsen er slut, eller der var ingen puls), startes en ny cyklus straks, når begge betingelser er opfyldt:
+
+1. Den nye puls bliver reelt til: `demand × periode + carry ≥ min_on_time` (ved 240/30 min ca. demand ≥ 12,5 %).
+2. Ventilen har allerede været OFF i mindst `(1 − demand) × periode` og i mindst `min_off_time`. OFF-tiden regnes fra seneste ventilskift, også hvis det lå før den aktuelle cyklus.
+
+Ved konstant demand giver reglen præcis samme timing og antal ventilskift som i dag. Når demand stiger, bliver OFF-pausen kortere. Ventetid efter endt puls ved 240 min periode, højst:
+
+| Demand | Maks. ventetid |
+|---:|---:|
+| 50 % | 120 min |
+| 75 % | 60 min |
+| 90 % | 24 min |
+| 100 % | 0 min |
+
+I dag ventes til den 240 min lange cyklus er slut.
+
+**Besluttet:** Altid aktiv; ingen ny YAML-option, da reglen opfører sig som i dag ved konstant demand.
+
+**Implementeringsdetaljer, der skal afklares og testes:**
+
+- Reglen evalueres, før ventilen slukkes ved pulsens slutning, så en ny cyklus, der allerede er due, holder ventilen ON i stedet for et OFF-blink uden længde.
+- Carry fra en afbrudt cyklus uden puls skal forholdsmæssigt reduceres til den forløbne del af cyklussen, så samme demand ikke tælles to gange.
+- PI-støj kan udløse en cyklusstart lidt tidligere end ved konstant demand; integratoren korrigerer, men det skal observeres i drift.
+- Uændret: demand 0 % slukker straks; boost, sænket setpoint, OFF-mode og sensorfejl virker som i dag.
+- Host-tests: konstant demand giver samme timing som i dag; stigende demand forkorter OFF-pausen efter formlen; cyklus uden puls + stigende demand starter straks; `min_off_time` overholdes; ingen ekstra ventilskift ved uændret demand.
+- Ved implementering opdateres dokumentationen, der i dag beskriver op til 4 timers reaktionstid (heatmesh README, QUICKSTART, IMPLEMENTERINGSPLAN).
+
 ### Regulatorens opgaver
 
 1. Beregn fejl `e = T_setpoint - T_room`.
@@ -276,6 +385,29 @@ Node-til-node-transport skal kunne fungere uden synkroniseret NTP. Hvis absolutt
 - Fallback er **ikke automatisk 100 % varme** og heller ikke nødvendigvis permanent `OFF`; det afhænger af frostrisiko, bolig, vandtemperatur og ønsket sikkerhedsprincip.
 - **Krav:** En fejl må aldrig føre til permanent fuld opvarmning, ubegrænset åbning eller et fejlagtigt 'sensor OK' pga. genudsendte stale målinger.
 - Hvis en node genstarter, skal zoner og telestater komme tilbage i en veldefineret tilstand, inden sensor-/kommunikationsdata erklæres gyldige.
+
+### Ventilmotion efter lang stilstand — KRAV
+
+**Krav (brugerbeslutning):** En ventiludgang, der har været OFF uafbrudt i mere end **2 måneder (regnes som 60 dage)**, skal tændes **ON i 20 minutter** og derefter slukkes igen. Formålet er at forhindre, at telestater og ventiler sætter sig fast efter lange perioder uden varmebehov, typisk om sommeren.
+
+- Gælder per udgang/zone og uafhængigt af varmebehov, også i zone-mode `OFF`, som netop er sommertilfældet.
+- Enhver almindelig ON-periode (PWM-puls eller boost) og selve motionen nulstiller stilstandstiden.
+- Genstart må hverken nulstille stilstandstiden eller i sig selv udløse en motion. Stilstandstiden skal derfor gemmes persistent med begrænset flash-slid (fx højst én skrivning i døgnet per zone) og må ikke kræve Home Assistant eller NTP.
+- 32-bit `millis()` løber over efter ca. 49,7 dage, altså før 60 dage; tidsbasen skal håndtere det.
+- Motionen tæller med i ventilskift-tælleren og skal kunne ses i diagnostik (fx dage siden sidste ON, og om motion er aktiv).
+- Test med forkortede tider i host-test og på A16; se T13 i §9.
+
+**Åbne detaljer — skal besluttes før implementering:**
+
+1. Forskydning mellem zoner, så ikke alle telestater tændes samtidig (24 V-strøm). Efter første flash har alle zoner samme stilstandstid.
+2. Om motionen må køre, mens sensorfejl/failsafe tvinger udgangen OFF. Motionen afhænger ikke af temperatur, men det er en undtagelse fra den nuværende faste failsafe-regel.
+3. Samspil med normal regulering under motionen, fx nyt varmebehov, sænket setpoint, mode-skift og `min_off_time` bagefter.
+4. Om motionen skal indgå i varmekald til pumpe/varmekilde (forslag: nej).
+5. Om 60 dage og 20 min skal være faste eller konfigurerbare per zone, og om funktionen kan slås fra.
+6. Tidspunkt på døgnet (fx om natten) kræver en tidskilde; uden den køres motionen, når grænsen nås.
+7. Startværdi ved første boot uden gemt historik (forslag: stilstandstiden regnes fra første boot).
+
+Milepæl er ikke fastlagt; arbejdsplanen i §8 er ikke ændret.
 
 ---
 
@@ -494,6 +626,7 @@ Den eksisterende fungerende `KC868-A16.yaml` skal være den tekniske sandhed for
 | T10 | Flere zoner kalder på varme | CPU, heap, BLE-modtagelse og output-skift forbliver stabile |
 | T11 | Lang drift | Ingen utilsigtede korte aktuatorpulser; mål antal switch-events |
 | T12 | RS485 peer sender samtidig | Kollisions-/busadgangsadfærd er dokumenteret og robust |
+| T13 | Ventil OFF i mere end 2 måneder | Udgangen er ON i 20 min og derefter OFF; genstart nulstiller ikke stilstandstiden og udløser ikke motion |
 
 **Målemetoder:** Log ESPHome-loop-/heap-statistik, tidsstempler for advertisement/modtagelse, sensor-age, udgangsskift, PI-output og eventuelle UART-fejl. Langtidstest før overtagelse af husets primære varmeregulering.
 
@@ -567,6 +700,7 @@ Den eksisterende fungerende `KC868-A16.yaml` skal være den tekniske sandhed for
 | Outputtopologi | High-side P-MOSFET; ikke low-side |
 | Sensorer | Xiaomi/Mijia, PVVX, BTHome v2; 6 bestilte |
 | Regulering | Lokal PI med langsom tidsproportional ON/OFF og failsafe |
+| Ventilmotion | 20 min ON, når en udgang har været OFF i mere end 2 måneder |
 | Implementering | ESPHome + lokal C++ External Component |
 | Kommunikation | RS485 prioriteres til sensor-shared data; Packet Transport vurderes/testes først |
 | Ethernet | Foretrukket til Home Assistant, mulig alternativ inter-node transport |
