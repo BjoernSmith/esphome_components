@@ -36,6 +36,7 @@ class HeatmeshComponent : public Component {
  private:
   static HeatmeshComponent *instance_;
   std::vector<ZoneController *> zones_;
+  ValveStartupCoordinator startup_coordinator_;
   bool setup_complete_{false};
 };
 

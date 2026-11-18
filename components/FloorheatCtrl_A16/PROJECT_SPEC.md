@@ -329,6 +329,13 @@ Dette er en præcisering af den ønskede senere polling-adfærd, ikke implemente
 
 **Vigtig algoritmisk detalje:** En fast PWM-periode og et krav om minimum ON/OFF kan modstride hinanden ved små duty cycles. Komponenten skal derfor have en tydelig strategi: f.eks. samle duty over længere vinduer, springe perioder over eller bruge hysterese nær setpunkt, frem for at generere korte pulser. Ingen af disse strategier er endnu endeligt valgt.
 
+### Opstartsforskydning efter genstart — IMPLEMENTERET
+
+- Hver zones første faktiske ventil-ON efter reboot forskydes mindst **5 minutter** fra andre zoners første ON på samme controller. Det gælder både normal PWM og boost, uden en YAML-indstilling. En zone uden gyldig måling, behov eller tilstrækkelig PWM-puls optager ingen plads.
+- En ventende PWM-cyklus og dens ON-tid starter først, når udgangen må tænde. En ventende boost tæller først `boost_time` fra faktisk ON og annulleres, hvis setpoint nås før ON. OFF og sensorfejl slukker straks.
+- Første PWM-cyklus forkortes efter zoneorden: med `N` zoner og nulbaseret indeks `i` bruges `max(min_on_time, periode × (N − i) / N)`. Ved tre zoner med 180 min periode er længderne 180, 120 og 60 min. ON-tid og carry beregnes ud fra den faktiske cykluslængde; senere cyklusser bruger den normale periode.
+- Forskydningen gælder kun første ON pr. zone efter reboot. Den forhindrer ikke senere samtidige starter eller samtidige åbne ventiler og koordinerer ikke forskellige boards. Fem minutter er en brugerbeslutning, ikke dokumentation for strømforsyningens kapacitet; dimensionér stadig efter målte strømme og worst case.
+
 ### Planlagt senere ændring: tidlig cyklusstart — IKKE IMPLEMENTERET
 
 > Besluttet som senere ændring; milepæl er ikke fastlagt, og arbejdsplanen i §8 er ikke ændret. Nuværende firmware låser ON-tiden per PWM-cyklus.
@@ -627,6 +634,7 @@ Den eksisterende fungerende `KC868-A16.yaml` skal være den tekniske sandhed for
 | T11 | Lang drift | Ingen utilsigtede korte aktuatorpulser; mål antal switch-events |
 | T12 | RS485 peer sender samtidig | Kollisions-/busadgangsadfærd er dokumenteret og robust |
 | T13 | Ventil OFF i mere end 2 måneder | Udgangen er ON i 20 min og derefter OFF; genstart nulstiller ikke stilstandstiden og udløser ikke motion |
+| T14 | Første ventilstarter efter reboot | Første ON pr. zone på samme controller er mindst 5 min fra hinanden; ventende boost/PWM og failsafe virker som beskrevet i §5 |
 
 **Målemetoder:** Log ESPHome-loop-/heap-statistik, tidsstempler for advertisement/modtagelse, sensor-age, udgangsskift, PI-output og eventuelle UART-fejl. Langtidstest før overtagelse af husets primære varmeregulering.
 

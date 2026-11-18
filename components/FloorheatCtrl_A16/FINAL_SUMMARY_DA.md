@@ -9,14 +9,14 @@
 
 Reference-YAML'en [a16_heatmesh.yaml](a16_heatmesh.yaml) har tre zoner: Badeværelse (Y01), Køkken (Y02) og Bryggers (Y03), hver med egen BTHome v2-sensor. Hver zone har en climate-entitet (HEAT/OFF, temperatur, setpoint, action) og native diagnostik. Mode og setpoint gendannes efter genstart. YAML'en har ingen lambdas.
 
-**Boost:** Hæves setpoint over rumtemperaturen, tænder udgangen straks i op til 30 min. Når udgangen først er tændt, forbliver den ON i mindst `min_on_time` (30 min), også selvom setpoint nås tidligere; med de nuværende værdier kører en tændt boost derfor hele 30 min. Det forhindrer korte pulser, som en termisk telestat ikke kan nå at reagere på.
+**Boost:** Hæves setpoint over rumtemperaturen, tænder udgangen normalt straks i op til 30 min. Første ON efter reboot kan vente på 5-minutters forskydningen, og boost-tiden tælles fra faktisk ON. Når udgangen først er tændt, forbliver den ON i mindst `min_on_time` (30 min), også selvom setpoint nås tidligere; med de nuværende værdier kører en tændt boost derfor hele 30 min.
 
 ## Verificeret — og ikke verificeret
 
 - Firmwaren er bygget med ESPHome 2026.10.2 og kører med tre zoner på A16.
 - Brugeren har bekræftet, at en zonefejl er isoleret fra de øvrige zoner, og at hardwareopsætningen fungerer.
 - Host-testen i `tests/heatmesh/` består, inkl. min. OFF-tid og boost min. ON-hold.
-- **Ikke testet på A16:** boost min. ON-hold, lang PWM-cyklus (240 min / min. ON 30 min), min. OFF-tid med ikke-nul værdi, restore efter genstart, watchdog/reboot, sensortab/recovery og drift uden Home Assistant.
+- **Ikke testet på A16:** opstartsforskydning, boost min. ON-hold, lang PWM-cyklus (180 min / min. ON 30 min), min. OFF-tid med ikke-nul værdi, restore efter genstart, watchdog/reboot, sensortab/recovery og drift uden Home Assistant.
 - **Ikke implementeret:** plausibilitetskontrol af temperaturmålinger.
 - Telestatens strøm og åbne-/lukketid, 24-timers stabilitet og PI-tuning mangler.
 
@@ -30,8 +30,8 @@ Reference-YAML'en [a16_heatmesh.yaml](a16_heatmesh.yaml) har tre zoner: Badevær
 
 ## Startværdier i YAML
 
-`Kp=100 %/K`, `Ki=0.028 %/(K·s)`, PI-loop 30 s, PWM 240 min, min. ON 30 min, min. OFF 0 s (slået fra), boost 30 min og sensortimeout 15 min. Alle er også komponentens defaults. 1 K under setpoint giver 100 % demand; `Kp/Ki` giver ca. 60 min integraltid. Det er startværdier, ikke færdig gulvvarmetuning.
+`Kp=100 %/K`, `Ki=0.028 %/(K·s)`, PI-loop 30 s, PWM 180 min, min. ON 30 min, min. OFF 0 s (slået fra), boost 30 min og sensortimeout 15 min. PWM-default er 240 min. 1 K under setpoint giver 100 % demand; `Kp/Ki` giver ca. 60 min integraltid. Det er startværdier, ikke færdig gulvvarmetuning.
 
-ON-tiden beregnes ved starten af hver 240 min-cyklus og holdes hele cyklussen. Demand under 12,5 % giver ingen puls i cyklussen; tiden akkumuleres, til der kan sendes en ON-puls på mindst 30 minutter. Et stigende varmebehov midt i en cyklus slår først igennem ved næste cyklusstart (op til 4 timer), og en startet puls stopper først, når demand når 0 %. Hæv setpoint for straks at få varme (boost). Observer adfærden på gulvet, mål telestatens reelle åbne-/lukketid, og justér derefter minimumspuls og periode.
+ON-tiden beregnes ved cyklusstart og holdes hele cyklussen. Efter reboot er første PWM-cyklus 180, 120 eller 60 min i zoneorden; senere cyklusser er 180 min. I en normal cyklus giver demand under 16,7 % ingen puls; tiden akkumuleres, til der kan sendes en ON-puls på mindst 30 minutter. Et stigende varmebehov midt i en normal cyklus kan vente op til 3 timer, og en startet puls stopper først, når demand når 0 %. Observer adfærden på gulvet og mål telestatens strøm samt åbne-/lukketid.
 
 Se [IMPLEMENTERINGSPLAN.md](IMPLEMENTERINGSPLAN.md) for næste trin og [PROJECT_SPEC.md](PROJECT_SPEC.md) for kravgrundlaget og den videre roadmap.

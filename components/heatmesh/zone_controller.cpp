@@ -10,6 +10,12 @@ namespace heatmesh {
 
 static const char *const TAG = "heatmesh.zone";
 static const uint32_t DIAGNOSTIC_PUBLISH_INTERVAL_MS = 10000;
+static const uint32_t FIRST_VALVE_START_SPACING_MS = 5 * 60000UL;
+
+void ValveStartupCoordinator::update(uint32_t now_ms) {
+  if (waiting_ && uint32_t(now_ms - last_start_ms_) >= FIRST_VALVE_START_SPACING_MS)
+    waiting_ = false;
+}
 
 // Stores the zone's control dependencies and converts configured periods to milliseconds.
 ZoneController::ZoneController(const std::string &zone_id, sensor::Sensor *temperature_sensor,
@@ -21,7 +27,16 @@ ZoneController::ZoneController(const std::string &zone_id, sensor::Sensor *tempe
       target_temperature_(target_temperature), sensor_timeout_ms_(sensor_timeout_ms),
       kp_(kp), ki_(ki), control_period_ms_(control_period_ms),
       pwm_period_ms_(pwm_period_min * 60000UL), min_on_time_ms_(min_on_time_ms),
-      min_off_time_ms_(min_off_time_ms), boost_time_ms_(boost_time_ms) {}
+      min_off_time_ms_(min_off_time_ms), boost_time_ms_(boost_time_ms),
+      first_pwm_period_ms_(pwm_period_min * 60000UL) {}
+
+void ZoneController::configure_startup(ValveStartupCoordinator *coordinator, std::size_t index, std::size_t count) {
+  startup_coordinator_ = coordinator;
+  // Spread the first cycle ends without allowing a pulse shorter than min_on_time.
+  const uint32_t staggered_period =
+      static_cast<uint32_t>(static_cast<uint64_t>(pwm_period_ms_) * (count - index) / count);
+  first_pwm_period_ms_ = std::max(std::max(min_on_time_ms_, uint32_t(1)), staggered_period);
+}
 
 // Starts the valve safely, subscribes to temperature updates, and restores climate state.
 void ZoneController::setup() {
@@ -126,7 +141,7 @@ void ZoneController::loop() {
       const bool min_on_done = !valve_on_ || uint32_t(now_ms - last_valve_change_ms_) >= min_on_time_ms_;
       if (setpoint_reached && min_on_done) {
         end_boost_("setpoint reached");
-      } else if (now_ms - boost_start_ms_ >= boost_time_ms_) {
+      } else if (!boost_waiting_for_valve_ && now_ms - boost_start_ms_ >= boost_time_ms_) {
         end_boost_("boost time elapsed; PI takes over");
       }
     }
@@ -207,7 +222,7 @@ void ZoneController::handle_timeproportional_output_(uint32_t now_ms) {
     return;
   }
   uint32_t elapsed_ms = now_ms - last_pwm_cycle_start_ms_;
-  if (!pwm_started_ || elapsed_ms >= pwm_period_ms_) {
+  if (!pwm_started_ || elapsed_ms >= active_pwm_period_ms_) {
     if (!valve_on_ && min_off_waiting_) {
       if (!min_off_logged_) {
         ESP_LOGI(TAG, "[%s] Waiting for minimum OFF time before starting PWM", zone_id_.c_str());
@@ -215,32 +230,62 @@ void ZoneController::handle_timeproportional_output_(uint32_t now_ms) {
       }
       return;
     }
-    // Start the first cycle immediately, not one full PWM period after boot.
+    const uint32_t period_ms = first_pwm_period_pending_ ? first_pwm_period_ms_ : pwm_period_ms_;
+    const float wanted_ms = (heat_demand_ / 100.0f) * static_cast<float>(period_ms) + pwm_carry_ms_;
+    const bool pulse_due = wanted_ms >= static_cast<float>(min_on_time_ms_) &&
+                           std::min(wanted_ms, static_cast<float>(period_ms)) >= 1.0f;
+    if (pulse_due && !first_start_allowed_()) {
+      apply_valve_state_(false, now_ms);
+      return;
+    }
     last_pwm_cycle_start_ms_ = now_ms;
+    active_pwm_period_ms_ = period_ms;
+    first_pwm_period_pending_ = false;
     pwm_started_ = true;
     elapsed_ms = 0;
-    pwm_on_time_ms_ = next_pwm_on_time_ms_();
+    pwm_on_time_ms_ = next_pwm_on_time_ms_(wanted_ms, period_ms);
   }
   // Positive demand is latched per PWM cycle; zero demand and faults stop immediately.
   apply_valve_state_(elapsed_ms < pwm_on_time_ms_, now_ms);
 }
 
 // Converts demand to an ON duration and carries forward pulses below the minimum.
-uint32_t ZoneController::next_pwm_on_time_ms_() {
+uint32_t ZoneController::next_pwm_on_time_ms_(float wanted_ms, uint32_t period_ms) {
   // Pulses shorter than min_on_time_ms_ cannot move a slow actuator, so they are carried into later cycles.
-  const float wanted_ms = (heat_demand_ / 100.0f) * static_cast<float>(pwm_period_ms_) + pwm_carry_ms_;
   if (wanted_ms < static_cast<float>(min_on_time_ms_)) {
     pwm_carry_ms_ = wanted_ms;
     return 0;
   }
-  const float on_ms = std::min(wanted_ms, static_cast<float>(pwm_period_ms_));
+  const float on_ms = std::min(wanted_ms, static_cast<float>(period_ms));
   pwm_carry_ms_ = wanted_ms - on_ms;
   return static_cast<uint32_t>(on_ms);
 }
 
+bool ZoneController::first_start_allowed_() {
+  if (valve_on_ || first_valve_start_done_ || startup_coordinator_ == nullptr || startup_coordinator_->can_start())
+    return true;
+  if (!startup_wait_logged_) {
+    ESP_LOGI(TAG, "[%s] Waiting for first valve start spacing after reboot", zone_id_.c_str());
+    startup_wait_logged_ = true;
+  }
+  return false;
+}
+
 // Applies a valve command and updates switch-count, diagnostics, and climate state.
 void ZoneController::apply_valve_state_(bool state, uint32_t now_ms) {
+  if (state && !valve_on_ && !first_start_allowed_())
+    state = false;
   if (state != valve_on_) {
+    if (state && !first_valve_start_done_) {
+      first_valve_start_done_ = true;
+      startup_wait_logged_ = false;
+      if (startup_coordinator_ != nullptr)
+        startup_coordinator_->record_start(now_ms);
+    }
+    if (state && boost_active_ && boost_waiting_for_valve_) {
+      boost_start_ms_ = now_ms;
+      boost_waiting_for_valve_ = false;
+    }
     valve_on_ = state;
     ++valve_switch_count_;
     last_valve_change_ms_ = now_ms;
@@ -299,17 +344,19 @@ void ZoneController::start_boost_if_below_setpoint_() {
     return;
   boost_active_ = true;
   boost_start_ms_ = millis();
+  boost_waiting_for_valve_ = !valve_on_;
   // The boost replaces the running PWM cycle; PI starts a fresh cycle when it takes over.
   pwm_started_ = false;
   pwm_on_time_ms_ = 0;
   pwm_carry_ms_ = 0.0f;
-  ESP_LOGI(TAG, "[%s] Boost: output ON for up to %" PRIu32 " s (T=%.2f C, target=%.1f C)", zone_id_.c_str(),
+  ESP_LOGI(TAG, "[%s] Boost requested for up to %" PRIu32 " s (T=%.2f C, target=%.1f C)", zone_id_.c_str(),
            boost_time_ms_ / 1000, current_temperature_, target_temperature_);
 }
 
 // Stops boost and schedules a fresh PI evaluation.
 void ZoneController::end_boost_(const char *reason) {
   boost_active_ = false;
+  boost_waiting_for_valve_ = false;
   pwm_started_ = false;
   control_due_ = true;
   ESP_LOGI(TAG, "[%s] Boost ended: %s", zone_id_.c_str(), reason);

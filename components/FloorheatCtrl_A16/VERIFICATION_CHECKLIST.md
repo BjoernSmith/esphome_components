@@ -17,6 +17,7 @@ Måledata og testdetaljer er ikke registreret; udfyld tabellen nederst ved næst
 - [x] Python schema/codegen og ESPHome-konfiguration accepteres for reference-YAML'en.
 - [x] Schema-defaults: en zone uden `pwm_period_min`/`min_on_time` accepteres med 240 min/30 min (`esphome config`, ESPHome 2026.10.2).
 - [x] Host-test `tests/heatmesh/test_min_off_time.cpp` består: min. OFF-tid (inkl. `millis()`-rollover), boost og failsafe, boost min. ON-hold, boost annulleret før ON, 100 % demand og genstart.
+- [x] Host-test `tests/heatmesh/test_startup_staggering.cpp` dækker første ON, forskudte PWM-cyklusser, boost under ventetid, failsafe og `millis()`-rollover.
 - [x] Tidligere host-simulering (v0.1.2): HEAT/OFF, setpoint/mode-restore, timeout og recovery.
 - [x] Reference-YAML har ingen lambdas eller template climate/number/diagnostic entities.
 
@@ -25,13 +26,15 @@ Måledata og testdetaljer er ikke registreret; udfyld tabellen nederst ved næst
 Push commit med kode og YAML til `main`, før HA bygger ny firmware.
 
 - [ ] ESP32-build og A16-boot med v0.2.0 (`HeatMesh v0.2.0: setup starting; 3 zones configured`).
-- [ ] Boost: hævet setpoint og OFF → HEAT tænder straks; ophør efter boost-tid.
+- [ ] Boost: hævet setpoint og OFF → HEAT tænder normalt straks; første ON efter reboot respekterer 5-minutters forskydningen. Boost-tiden tælles fra ON.
 - [ ] Boost min. ON-hold: når setpoint nås kort efter boost-start, forbliver udgangen ON i mindst `min_on_time`.
 - [ ] Sænket setpoint til ≤ rumtemperatur under boost: udgangen slukker straks.
 - [ ] Konfigureret `min_off_time` (> 0): PWM venter, boost overstyrer, og sensorfejl/OFF stopper straks.
-- [ ] Lang PWM-cyklus (240 min, min. ON 30 min): ON-tid = `demand × 240 min` ved cyklusstart og holdes cyklussen ud; demand < 12,5 % giver carry-over. Notér reaktionstid og overshoot.
+- [ ] Lang PWM-cyklus (180 min, min. ON 30 min): ON-tid = `demand × 180 min` ved normal cyklusstart og holdes cyklussen ud; demand < 16,7 % giver carry-over. Første cyklus kan være kortere. Notér reaktionstid og overshoot.
 - [ ] Genstart: mode og setpoint gendannes per zone; uden gemt state forventes HEAT og 21 °C.
 - [ ] Watchdog/reboot: enheden kommer op med alle udgange OFF og genoptager regulering efter friske målinger.
+- [ ] Opstart med ufarlige testlaster: første ON pr. zone er mindst 5 min fra de øvrige første ON-kommandoer, også ved boost; sensorfejl/OFF stopper straks. Bekræft, at ventende boost får fuld boost-tid fra faktisk ON.
+- [ ] Første PWM-cyklus ved tre zoner med samme 180 min periode: 180, 120 og 60 min i YAML-orden, når cyklusserne får lov at fuldføre. Senere cyklusser bruger 180 min; kortere pulser end min. ON akkumuleres.
 - [ ] Sensortab: stop én sensor; efter 15 min er kun den zones `Sensor Valid` og udgang OFF.
 - [ ] Sensor-recovery: næste gyldige måling genaktiverer zonen.
 - [ ] HA/API-frakobling: lokal regulering fortsætter, og enheden genstarter ikke.

@@ -3,18 +3,18 @@
 # Location: <repo>/components/FloorheatCtrl_A16/a16_heatmesh.yaml
 
 substitutions:
-  sensor_01_friendly_name: "Badeværelse"
-  sensor_01_mac_address: "A4:C1:38:14:28:EA"
-  sensor_02_friendly_name: "Køkken"
-  sensor_02_mac_address: "A4:C1:38:BA:4E:58"
-  sensor_03_friendly_name: "Bryggers"
+  sensor_01_friendly_name: "Victor"
+  sensor_01_mac_address: "A4:C1:38:1F:B3:28"
+  sensor_02_friendly_name: "Nohr"
+  sensor_02_mac_address: "A4:C1:38:06:B9:D8"
+  sensor_03_friendly_name: "Bagstue"
   sensor_03_mac_address: "A4:C1:38:09:7B:7B"
-  zone_id_1: bathroom_room
-  zone_name_1: "Badeværelse"
-  zone_id_2: kitchen_room
-  zone_name_2: "Køkken"
-  zone_id_3: bryggers_room
-  zone_name_3: "Bryggers"
+  zone_id_1: victor_room
+  zone_name_1: "Victor"
+  zone_id_2: nohr_room
+  zone_name_2: "Nohr"
+  zone_id_3: bagstue_room
+  zone_name_3: "Bagstue"
 
 esphome:
   # Hostname, OTA target and Home Assistant device ID: keep unchanged.
@@ -35,7 +35,6 @@ logger:
     bthome_mithermometer: INFO
     esp32_ble_tracker: INFO
 
-
 api:
   # Local control must not reboot because HA is disconnected.
   reboot_timeout: 0s
@@ -55,6 +54,10 @@ esp32_ble_tracker:
   scan_parameters:
     interval: 320ms
     window: 300ms
+
+# Bluetooth proxy to Home Assistant
+bluetooth_proxy:
+  active: false
 
 # External component: heatmesh (GitHub version)
 external_components:
@@ -173,7 +176,7 @@ heatmesh:
       kp: 100
       ki: 0.028
       period_ms: 30000
-      pwm_period_min: 240
+      pwm_period_min: 180
       min_on_time: 30min
       min_off_time: 0s
       # Setpoint raised above room temperature (or OFF -> HEAT below setpoint):
@@ -209,7 +212,7 @@ heatmesh:
       kp: 100
       ki: 0.028
       period_ms: 30000
-      pwm_period_min: 240
+      pwm_period_min: 180
       min_on_time: 30min
       min_off_time: 0s
       # Setpoint raised above room temperature (or OFF -> HEAT below setpoint):
@@ -245,7 +248,7 @@ heatmesh:
       kp: 100
       ki: 0.028
       period_ms: 30000
-      pwm_period_min: 240
+      pwm_period_min: 180
       min_on_time: 30min
       min_off_time: 0s
       # Setpoint raised above room temperature (or OFF -> HEAT below setpoint):

@@ -3,6 +3,7 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
+#include <cstddef>
 #include <cmath>
 #include <cstdint>
 #include <string>
@@ -11,6 +12,20 @@ namespace esphome {
 namespace heatmesh {
 
 class ZoneClimate;
+
+class ValveStartupCoordinator {
+ public:
+  void update(uint32_t now_ms);
+  bool can_start() const { return !waiting_; }
+  void record_start(uint32_t now_ms) {
+    waiting_ = true;
+    last_start_ms_ = now_ms;
+  }
+
+ private:
+  bool waiting_{false};
+  uint32_t last_start_ms_{0};
+};
 
 class ZoneController {
  public:
@@ -31,6 +46,8 @@ class ZoneController {
   void set_target_temperature(float temp);
   // Enables heating in HEAT mode or forces the output off in OFF mode.
   void set_enabled(bool enabled);
+  // Configures shared first-start spacing and the initial PWM period.
+  void configure_startup(ValveStartupCoordinator *coordinator, std::size_t index, std::size_t count);
   // Reports whether this zone is in HEAT mode.
   bool is_enabled() const { return enabled_; }
 
@@ -76,7 +93,9 @@ class ZoneController {
   // Converts current demand into a time-proportional valve command.
   void handle_timeproportional_output_(uint32_t now_ms);
   // Calculates the next PWM ON duration, retaining pulses below the minimum.
-  uint32_t next_pwm_on_time_ms_();
+  uint32_t next_pwm_on_time_ms_(float wanted_ms, uint32_t period_ms);
+  // Checks the shared first-start spacing without reserving a slot.
+  bool first_start_allowed_();
   // Applies an output transition and publishes associated diagnostics.
   void apply_valve_state_(bool state, uint32_t now_ms);
   // Clears heating demand and PI/PWM state, then forces the output off.
@@ -100,6 +119,7 @@ class ZoneController {
   uint32_t min_on_time_ms_;
   uint32_t min_off_time_ms_;
   uint32_t boost_time_ms_;
+  uint32_t first_pwm_period_ms_;
 
   float current_temperature_{NAN};
   float heat_demand_{0.0f};
@@ -111,7 +131,11 @@ class ZoneController {
   bool setup_complete_{false};
   bool control_due_{true};
   bool pwm_started_{false};
+  bool first_pwm_period_pending_{true};
+  bool first_valve_start_done_{false};
+  bool startup_wait_logged_{false};
   bool boost_active_{false};
+  bool boost_waiting_for_valve_{false};
   bool min_off_waiting_{false};
   bool min_off_logged_{false};
   uint32_t boost_start_ms_{0};
@@ -121,11 +145,13 @@ class ZoneController {
   uint32_t last_valve_change_ms_{0};
   uint32_t valve_switch_count_{0};
   uint32_t pwm_on_time_ms_{0};
+  uint32_t active_pwm_period_ms_{0};
   float pwm_carry_ms_{0.0f};
   uint32_t last_pwm_cycle_start_ms_{0};
   bool enabled_{true};
   uint32_t last_publish_ms_{0};
 
+  ValveStartupCoordinator *startup_coordinator_{nullptr};
   ZoneClimate *climate_{nullptr};
   sensor::Sensor *heat_demand_sensor_{nullptr};
   sensor::Sensor *sensor_age_sensor_{nullptr};

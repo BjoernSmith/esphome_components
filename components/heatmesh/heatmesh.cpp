@@ -1,4 +1,5 @@
 #include "heatmesh.h"
+#include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
 namespace esphome {
@@ -14,14 +15,17 @@ void HeatmeshComponent::setup() {
     return;
   instance_ = this;
   ESP_LOGI(TAG, "HeatMesh v%s: setup starting; %zu zones configured", HEATMESH_VERSION, zones_.size());
-  for (auto *zone : zones_)
-    zone->setup();
+  for (size_t index = 0; index < zones_.size(); ++index) {
+    zones_[index]->configure_startup(&startup_coordinator_, index, zones_.size());
+    zones_[index]->setup();
+  }
   setup_complete_ = true;
   ESP_LOGI(TAG, "HeatMesh setup complete; waiting for new temperature publications");
 }
 
 // Runs one control-loop iteration for every configured zone.
 void HeatmeshComponent::loop() {
+  startup_coordinator_.update(millis());
   for (auto *zone : zones_)
     zone->loop();
 }
