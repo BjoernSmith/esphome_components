@@ -33,7 +33,7 @@ Per zone (Badeværelse, Køkken, Bryggers):
 - BLE-sensorernes egne entiteter: `<sensor> Temp`, `<sensor> Humidity` og `<sensor> Battery`.
 - Ventilernes GPIO-switches er `internal`; HeatMesh ejer udgangene. Opret ikke en anden kontrolvej til samme ventil.
 
-Ved første climate-start uden gemt state er mode HEAT og setpoint `target_temperature: 21.0`. Senere gendannes mode og setpoint per zone fra ESPHome restore-state.
+Ved første climate-start uden gemt state er mode HEAT og setpoint `target_temperature: 20.0`. Senere gendannes mode og setpoint per zone fra ESPHome restore-state; ændr eksisterende setpoints i Home Assistant.
 
 `friendly_name` er ændret fra `FloorHeat_v01_SingleZone` til `FloorHeat A16`. Enhedens visningsnavn i HA ændres; eksisterende entity-id'er bevares.
 
@@ -50,15 +50,15 @@ Punkt 1–4 er grundfunktioner, der allerede kører; gentag dem efter ny firmwar
 7. **Timeout og recovery:** Stop én sensors BLE-opdateringer. Efter `sensor_timeout: 15min` forventes `Sensor Valid` OFF og udgang OFF for den zone, mens de andre zoner regulerer videre. Den næste gyldige måling genaktiverer reguleringen, hvis climate er i HEAT.
 8. **HA-frakobling:** Afbryd HA/API uden at afbryde controllerens strøm; lokal regulering skal fortsætte, og enheden må ikke genstarte (`reboot_timeout: 0s`).
 9. **Min. OFF-tid:** Sæt midlertidigt fx `min_off_time: 10min` i én zone. Efter en OFF-overgang skal næste PWM-start vente (`Waiting for minimum OFF time before starting PWM`); boost overstyrer min. OFF, men ikke en ventende første ON efter reboot. OFF/sensorfejl skal stadig slukke straks.
-10. **Lang PWM-cyklus (180 min):** Observer mindst én normal cyklus uden at ændre setpoint. Ved cyklusstart beregnes ON-tiden som `demand × 180 min` (mindst 30 min, ellers carry-over) og holdes hele cyklussen. Første cyklus efter reboot er 180, 120 eller 60 min i zoneorden. Notér temperatur, demand, ON-tid, overshoot og reaktionstid, når rummet køler af midt i en cyklus.
+10. **Responsiv PWM (180 min):** Observer flere cyklusser. Faldende demand kan forkorte en ON-puls efter min. ON, og stigende demand kan starte næste cyklus tidligt. Første cyklus efter reboot er 180, 120 eller 60 min i zoneorden, hvis den ikke afbrydes tidligt. Notér temperatur, demand, ON-tid, overshoot og reaktionstid.
 11. **Telestat:** Mål start-/holdestrøm og åbne-/lukketid; brug målingerne til at vurdere `min_on_time`, `min_off_time` og PWM-perioden.
 
 ## Hvis noget ikke passer
 
 - Ingen `Sensor Valid`: kontrollér MAC, sensorens BTHome-version, BLE-rækkevidde og logs.
 - Ingen output: kontrollér mode (HEAT), `Sensor Valid`, demand, PWM-periode, carry-over og eventuel opstartsventetid. Demand under 16,7 % giver ingen puls i en normal 180 min-cyklus; tiden akkumuleres, og næste beslutning kommer først ved næste cyklusstart (op til 3 timer). En kortere første cyklus kræver højere demand for at give en puls.
-- Udgangen er stadig ON, selv om setpoint er nået: forventet i op til `min_on_time`, hvis boost netop har tændt udgangen. Ellers er PWM-pulsen låst for cyklussen og stopper først, når demand når 0 % (ca. `I/Kp` over setpoint).
-- Udgangen tænder ikke, selv om rummet er blevet koldere: ON-tiden blev låst ved cyklusstart. En ny beregning sker ved næste cyklusstart, når demand har været 0 %, eller når setpoint hæves (boost).
+- Udgangen er stadig ON, selv om setpoint er nået: integratoren kan holde demand positiv. En PWM- eller boost-puls holdes mindst `min_on_time`, medmindre demand når 0 %, OFF vælges, eller sensoren fejler.
+- Udgangen tænder ikke, selv om rummet er blevet koldere: kontrollér demand, carry-over, minimum OFF-tid og betingelserne for tidlig cyklusstart i [PROJECT_SPEC.md](PROJECT_SPEC.md).
 - Compilefejl på `heatmesh`: kontrollér, at GitHub `main` indeholder den komponentversion, YAML'en forventer.
 - Forældede `Test Zone`-entiteter fra tidligere firmware i HA: fjern dem manuelt, når de nye zoner er valideret.
 

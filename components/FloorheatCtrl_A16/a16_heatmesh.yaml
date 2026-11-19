@@ -168,13 +168,13 @@ heatmesh:
       temperature_sensor: test_zone1_temp
       valve: test_valve_y01
       # Only used until the thermostat has stored a setpoint in flash.
-      target_temperature: 21.0
+      target_temperature: 20.0
       sensor_timeout: 15min
       # Bench-test values, not yet validated on the real floor.
       # kp: percentage points / K -> 1 K below setpoint = 100 % demand.
-      # ki: percentage points / (K * second), so Ti = kp / ki = ~60 min.
+      # ki: percentage points / (K * second), so Ti = kp / ki = ~4 h.
       kp: 100
-      ki: 0.028
+      ki: 0.007
       period_ms: 30000
       pwm_period_min: 180
       min_on_time: 30min
@@ -204,13 +204,13 @@ heatmesh:
       temperature_sensor: test_zone2_temp
       valve: test_valve_y02
       # Only used until the thermostat has stored a setpoint in flash.
-      target_temperature: 21.0
+      target_temperature: 20.0
       sensor_timeout: 15min
       # Bench-test values, not yet validated on the real floor.
       # kp: percentage points / K -> 1 K below setpoint = 100 % demand.
-      # ki: percentage points / (K * second), so Ti = kp / ki = ~60 min.
+      # ki: percentage points / (K * second), so Ti = kp / ki = ~4 h.
       kp: 100
-      ki: 0.028
+      ki: 0.007
       period_ms: 30000
       pwm_period_min: 180
       min_on_time: 30min
@@ -240,13 +240,13 @@ heatmesh:
       temperature_sensor: test_zone3_temp
       valve: test_valve_y03
       # Only used until the thermostat has stored a setpoint in flash.
-      target_temperature: 21.0
+      target_temperature: 20.0
       sensor_timeout: 15min
       # Bench-test values, not yet validated on the real floor.
       # kp: percentage points / K -> 1 K below setpoint = 100 % demand.
-      # ki: percentage points / (K * second), so Ti = kp / ki = ~60 min.
+      # ki: percentage points / (K * second), so Ti = kp / ki = ~4 h.
       kp: 100
-      ki: 0.028
+      ki: 0.007
       period_ms: 30000
       pwm_period_min: 180
       min_on_time: 30min

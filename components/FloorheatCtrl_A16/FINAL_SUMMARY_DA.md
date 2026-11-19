@@ -30,8 +30,8 @@ Reference-YAML'en [a16_heatmesh.yaml](a16_heatmesh.yaml) har tre zoner: Badevær
 
 ## Startværdier i YAML
 
-`Kp=100 %/K`, `Ki=0.028 %/(K·s)`, PI-loop 30 s, PWM 180 min, min. ON 30 min, min. OFF 0 s (slået fra), boost 30 min og sensortimeout 15 min. PWM-default er 240 min. 1 K under setpoint giver 100 % demand; `Kp/Ki` giver ca. 60 min integraltid. Det er startværdier, ikke færdig gulvvarmetuning.
+`Kp=100 %/K`, `Ki=0.007 %/(K·s)`, PI-loop 30 s, PWM 180 min, min. ON 30 min, min. OFF 0 s (slået fra), boost 30 min og sensortimeout 15 min. Komponentens defaults for Ki og PWM er 0.028 og 240 min. `Kp/Ki` giver ca. 4 timer integraltid. Det er forsøgsindstillinger, ikke færdig gulvvarmetuning.
 
-ON-tiden beregnes ved cyklusstart og holdes hele cyklussen. Efter reboot er første PWM-cyklus 180, 120 eller 60 min i zoneorden; senere cyklusser er 180 min. I en normal cyklus giver demand under 16,7 % ingen puls; tiden akkumuleres, til der kan sendes en ON-puls på mindst 30 minutter. Et stigende varmebehov midt i en normal cyklus kan vente op til 3 timer, og en startet puls stopper først, når demand når 0 %. Observer adfærden på gulvet og mål telestatens strøm samt åbne-/lukketid.
+ON-tiden beregnes ved cyklusstart og kan forkortes ved faldende demand efter min. ON. Stigende demand kan fremskynde en ny cyklus; korte pulser akkumuleres. Efter reboot er første PWM-cyklus 180, 120 eller 60 min i zoneorden, hvis den ikke afbrydes tidligt. Observer adfærden på gulvet og mål telestatens strøm samt åbne-/lukketid.
 
 Se [IMPLEMENTERINGSPLAN.md](IMPLEMENTERINGSPLAN.md) for næste trin og [PROJECT_SPEC.md](PROJECT_SPEC.md) for kravgrundlaget og den videre roadmap.

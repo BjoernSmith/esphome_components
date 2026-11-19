@@ -138,6 +138,7 @@ class ZoneController {
   bool boost_waiting_for_valve_{false};
   bool min_off_waiting_{false};
   bool min_off_logged_{false};
+  bool off_period_elapsed_{false};
   uint32_t boost_start_ms_{0};
   uint32_t sensor_age_ms_{UINT32_MAX};
   uint32_t last_sensor_update_ms_{0};
@@ -147,6 +148,9 @@ class ZoneController {
   uint32_t pwm_on_time_ms_{0};
   uint32_t active_pwm_period_ms_{0};
   float pwm_carry_ms_{0.0f};
+  float cycle_start_demand_{0.0f};
+  float cycle_carry_before_ms_{0.0f};
+  float cycle_carry_applied_ms_{0.0f};
   uint32_t last_pwm_cycle_start_ms_{0};
   bool enabled_{true};
   uint32_t last_publish_ms_{0};

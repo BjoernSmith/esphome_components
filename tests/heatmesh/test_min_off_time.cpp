@@ -173,6 +173,137 @@ static void test_boost_cancelled_before_on() {
   assert(test.zone.get_valve_switch_count() == 2);
 }
 
+static void test_falling_demand_shortens_pulse() {
+  now_ms = 0;
+  TestZone test(0);
+  test.sensor.publish_state(20.9f);
+  test.tick(180000);
+  assert(test.valve.state);
+  test.tick(299999);
+  assert(test.valve.state);
+  test.tick(300000);
+  assert(!test.valve.state);
+}
+
+static void test_rising_demand_does_not_extend_current_pulse() {
+  now_ms = 0;
+  TestZone test(0);
+  test.sensor.publish_state(20.25f);
+  test.tick(180000);
+  test.tick(449999);
+  assert(test.valve.state);
+  test.tick(450000);
+  assert(!test.valve.state);
+}
+
+static void test_failsafe_overrides_min_on() {
+  now_ms = 0;
+  TestZone test(0);
+  test.tick(30000);
+  test.sensor.publish_state(NAN);
+  assert(!test.valve.state);
+}
+
+static void test_rising_demand_restarts_early(uint32_t off_time, uint32_t expected_start, uint32_t start = 0) {
+  now_ms = start;
+  TestZone test(off_time);
+  test.tick(start + 450000);
+  assert(!test.valve.state);
+  test.sensor.publish_state(20.25f);
+  test.tick(start + 480000);
+  test.tick(start + expected_start - 1);
+  assert(!test.valve.state);
+  test.tick(start + expected_start);
+  assert(test.valve.state);
+}
+
+static void test_reference_period_timing() {
+  static constexpr uint32_t minute = 60000;
+  now_ms = 0;
+  Sensor sensor;
+  Switch valve;
+  ZoneController zone("reference", &sensor, &valve, 21.0f, 14400000, 100.0f, 0.0f, 30000,
+                      180, 30 * minute, 0, 0);
+  zone.setup();
+  sensor.publish_state(20.5f);
+  zone.loop();
+  assert(valve.state);
+  now_ms = 90 * minute;
+  zone.loop();
+  assert(!valve.state);
+  sensor.publish_state(20.25f);
+  now_ms = 95 * minute;
+  zone.loop();
+  now_ms = 135 * minute - 1;
+  zone.loop();
+  assert(!valve.state);
+  now_ms = 135 * minute;
+  zone.loop();
+  assert(valve.state);
+  sensor.publish_state(20.9f);
+  now_ms = 140 * minute;
+  zone.loop();
+  now_ms = 165 * minute - 1;
+  zone.loop();
+  assert(valve.state);
+  now_ms = 165 * minute;
+  zone.loop();
+  assert(!valve.state);
+}
+
+static void test_full_demand_at_pulse_end_avoids_off_blink() {
+  now_ms = 0;
+  TestZone test(0);
+  test.sensor.publish_state(20.0f);
+  test.tick(450000);
+  assert(test.valve.state);
+  assert(test.zone.get_valve_switch_count() == 1);
+}
+
+static void test_skipped_cycle_earns_only_elapsed_carry() {
+  now_ms = 0;
+  Sensor sensor;
+  Switch valve;
+  ZoneController zone("carry", &sensor, &valve, 21.0f, 14400000, 100.0f, 0.0f, 30000,
+                      15, 300000, 0, 0);
+  zone.setup();
+  sensor.publish_state(20.9f);
+  zone.loop();
+  now_ms = 300000;
+  zone.loop();
+  assert(!valve.state);
+  sensor.publish_state(20.625f);
+  now_ms = 562499;
+  zone.loop();
+  assert(!valve.state);
+  now_ms = 562500;
+  zone.loop();
+  assert(valve.state);
+  now_ms = 940000;
+  zone.loop();
+  assert(valve.state);
+  now_ms = 960000;
+  zone.loop();
+  assert(!valve.state);
+}
+
+static void test_constant_small_demand_waits_full_cycle() {
+  now_ms = 0;
+  Sensor sensor;
+  Switch valve;
+  ZoneController zone("low", &sensor, &valve, 21.0f, 14400000, 100.0f, 0.0f, 30000,
+                      15, 300000, 0, 0);
+  zone.setup();
+  sensor.publish_state(20.8f);
+  zone.loop();
+  now_ms = 899999;
+  zone.loop();
+  assert(!valve.state);
+  now_ms = 900000;
+  zone.loop();
+  assert(valve.state);
+}
+
 // Runs OFF-time tests, including rollover of the millisecond clock.
 int main() {
   test_zero_bypass();
@@ -184,6 +315,16 @@ int main() {
   test_boost_cancelled_before_on();
   test_full_demand();
   test_reboot_bypass();
+  test_falling_demand_shortens_pulse();
+  test_rising_demand_does_not_extend_current_pulse();
+  test_failsafe_overrides_min_on();
+  test_rising_demand_restarts_early(0, 675000);
+  test_rising_demand_restarts_early(300000, 750000);
+  test_rising_demand_restarts_early(0, 675000, UINT32_MAX - 500000);
+  test_reference_period_timing();
+  test_full_demand_at_pulse_end_avoids_off_blink();
+  test_skipped_cycle_earns_only_elapsed_carry();
+  test_constant_small_demand_waits_full_cycle();
   std::puts("min_off_time tests passed");
   return 0;
 }

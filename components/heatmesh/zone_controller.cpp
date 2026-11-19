@@ -44,6 +44,7 @@ void ZoneController::setup() {
     return;
   setup_complete_ = true;
   last_control_ms_ = millis();
+  last_valve_change_ms_ = last_control_ms_;
   min_off_waiting_ = false;
   min_off_logged_ = false;
   if (valve_output_ != nullptr)
@@ -127,6 +128,8 @@ void ZoneController::loop() {
   if (!setup_complete_)
     return;
   const uint32_t now_ms = millis();
+  if (!valve_on_ && !off_period_elapsed_ && uint32_t(now_ms - last_valve_change_ms_) >= pwm_period_ms_)
+    off_period_elapsed_ = true;
   if (min_off_waiting_ && uint32_t(now_ms - last_valve_change_ms_) >= min_off_time_ms_) {
     min_off_waiting_ = false;
     min_off_logged_ = false;
@@ -222,7 +225,40 @@ void ZoneController::handle_timeproportional_output_(uint32_t now_ms) {
     return;
   }
   uint32_t elapsed_ms = now_ms - last_pwm_cycle_start_ms_;
-  if (!pwm_started_ || elapsed_ms >= active_pwm_period_ms_) {
+  bool cycle_due = !pwm_started_ || elapsed_ms >= active_pwm_period_ms_;
+  if (pwm_started_ && !cycle_due) {
+    const float adjusted_on_ms = std::min(static_cast<float>(pwm_on_time_ms_),
+        (heat_demand_ / 100.0f) * static_cast<float>(active_pwm_period_ms_) + cycle_carry_applied_ms_);
+    const bool pulse_active = valve_on_ &&
+        (static_cast<float>(elapsed_ms) < adjusted_on_ms ||
+         uint32_t(now_ms - last_valve_change_ms_) < min_on_time_ms_);
+    if (!pulse_active && !min_off_waiting_) {
+      float carry_ms = pwm_carry_ms_;
+      if (pwm_on_time_ms_ == 0) {
+        // A skipped cycle has only earned the fraction of its carry that has elapsed.
+        carry_ms = cycle_carry_before_ms_ + (pwm_carry_ms_ - cycle_carry_before_ms_) *
+                   static_cast<float>(elapsed_ms) / static_cast<float>(active_pwm_period_ms_);
+      }
+      const float wanted_ms = (heat_demand_ / 100.0f) * static_cast<float>(pwm_period_ms_) + carry_ms;
+      const float required_off_ms = (1.0f - heat_demand_ / 100.0f) * static_cast<float>(pwm_period_ms_);
+      float off_ms = 0.0f;
+      if (!valve_on_)
+        off_ms = off_period_elapsed_ ? static_cast<float>(pwm_period_ms_)
+                                     : static_cast<float>(uint32_t(now_ms - last_valve_change_ms_));
+      const bool short_cycle_can_restart = pwm_on_time_ms_ != 0 || heat_demand_ > cycle_start_demand_;
+      const bool no_forced_off = !valve_on_ || min_off_time_ms_ == 0;
+      if (short_cycle_can_restart && no_forced_off && wanted_ms >= static_cast<float>(min_on_time_ms_) &&
+          wanted_ms >= 1.0f && off_ms >= required_off_ms && first_start_allowed_()) {
+        pwm_carry_ms_ = carry_ms;
+        cycle_due = true;
+      }
+    }
+    if (!cycle_due) {
+      apply_valve_state_(pulse_active, now_ms);
+      return;
+    }
+  }
+  if (cycle_due) {
     if (!valve_on_ && min_off_waiting_) {
       if (!min_off_logged_) {
         ESP_LOGI(TAG, "[%s] Waiting for minimum OFF time before starting PWM", zone_id_.c_str());
@@ -243,9 +279,11 @@ void ZoneController::handle_timeproportional_output_(uint32_t now_ms) {
     first_pwm_period_pending_ = false;
     pwm_started_ = true;
     elapsed_ms = 0;
+    cycle_start_demand_ = heat_demand_;
+    cycle_carry_before_ms_ = pwm_carry_ms_;
     pwm_on_time_ms_ = next_pwm_on_time_ms_(wanted_ms, period_ms);
+    cycle_carry_applied_ms_ = pwm_on_time_ms_ == 0 ? 0.0f : cycle_carry_before_ms_ - pwm_carry_ms_;
   }
-  // Positive demand is latched per PWM cycle; zero demand and faults stop immediately.
   apply_valve_state_(elapsed_ms < pwm_on_time_ms_, now_ms);
 }
 
@@ -289,6 +327,7 @@ void ZoneController::apply_valve_state_(bool state, uint32_t now_ms) {
     valve_on_ = state;
     ++valve_switch_count_;
     last_valve_change_ms_ = now_ms;
+    off_period_elapsed_ = false;
     min_off_waiting_ = !state && min_off_time_ms_ > 0;
     min_off_logged_ = false;
     ESP_LOGI(TAG, "[%s] Output %s (switch #%" PRIu32 ", demand=%.1f%%)",

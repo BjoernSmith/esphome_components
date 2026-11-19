@@ -336,40 +336,12 @@ Dette er en præcisering af den ønskede senere polling-adfærd, ikke implemente
 - Første PWM-cyklus forkortes efter zoneorden: med `N` zoner og nulbaseret indeks `i` bruges `max(min_on_time, periode × (N − i) / N)`. Ved tre zoner med 180 min periode er længderne 180, 120 og 60 min. ON-tid og carry beregnes ud fra den faktiske cykluslængde; senere cyklusser bruger den normale periode.
 - Forskydningen gælder kun første ON pr. zone efter reboot. Den forhindrer ikke senere samtidige starter eller samtidige åbne ventiler og koordinerer ikke forskellige boards. Fem minutter er en brugerbeslutning, ikke dokumentation for strømforsyningens kapacitet; dimensionér stadig efter målte strømme og worst case.
 
-### Planlagt senere ændring: tidlig cyklusstart — IKKE IMPLEMENTERET
+### Responsiv PWM — IMPLEMENTERET, AFVENTER HARDWARETEST
 
-> Besluttet som senere ændring; milepæl er ikke fastlagt, og arbejdsplanen i §8 er ikke ændret. Nuværende firmware låser ON-tiden per PWM-cyklus.
-
-**Problem:** Med lang PWM-periode (reference 240 min) bruges et stigende varmebehov først ved næste cyklusstart. Efter en kort puls, eller en cyklus uden puls fordi demand var under ca. 12,5 % ved cyklusstart, kan ventilen derfor blive ved med at være OFF i op til en hel periode, selv om demand i mellemtiden er højt.
-
-**Hvorfor ikke en simpel grænse:** En regel som "ventil OFF og demand ≥ 50 % → start nu" ødelægger normal drift. Ved konstant 60 % demand slutter pulsen på 144 min, demand er stadig over grænsen, og ventilen tændes straks igen; i praksis kører den så ca. 100 %.
-
-**Regel:** Mens ventilen er OFF i en cyklus (pulsen er slut, eller der var ingen puls), startes en ny cyklus straks, når begge betingelser er opfyldt:
-
-1. Den nye puls bliver reelt til: `demand × periode + carry ≥ min_on_time` (ved 240/30 min ca. demand ≥ 12,5 %).
-2. Ventilen har allerede været OFF i mindst `(1 − demand) × periode` og i mindst `min_off_time`. OFF-tiden regnes fra seneste ventilskift, også hvis det lå før den aktuelle cyklus.
-
-Ved konstant demand giver reglen præcis samme timing og antal ventilskift som i dag. Når demand stiger, bliver OFF-pausen kortere. Ventetid efter endt puls ved 240 min periode, højst:
-
-| Demand | Maks. ventetid |
-|---:|---:|
-| 50 % | 120 min |
-| 75 % | 60 min |
-| 90 % | 24 min |
-| 100 % | 0 min |
-
-I dag ventes til den 240 min lange cyklus er slut.
-
-**Besluttet:** Altid aktiv; ingen ny YAML-option, da reglen opfører sig som i dag ved konstant demand.
-
-**Implementeringsdetaljer, der skal afklares og testes:**
-
-- Reglen evalueres, før ventilen slukkes ved pulsens slutning, så en ny cyklus, der allerede er due, holder ventilen ON i stedet for et OFF-blink uden længde.
-- Carry fra en afbrudt cyklus uden puls skal forholdsmæssigt reduceres til den forløbne del af cyklussen, så samme demand ikke tælles to gange.
-- PI-støj kan udløse en cyklusstart lidt tidligere end ved konstant demand; integratoren korrigerer, men det skal observeres i drift.
-- Uændret: demand 0 % slukker straks; boost, sænket setpoint, OFF-mode og sensorfejl virker som i dag.
-- Host-tests: konstant demand giver samme timing som i dag; stigende demand forkorter OFF-pausen efter formlen; cyklus uden puls + stigende demand starter straks; `min_off_time` overholdes; ingen ekstra ventilskift ved uændret demand.
-- Ved implementering opdateres dokumentationen, der i dag beskriver op til 4 timers reaktionstid (heatmesh README, QUICKSTART, IMPLEMENTERINGSPLAN).
+- PWM-pulsen beregnes ved cyklusstart inklusive carry. Falder demand, kan pulsen forkortes; den respekterer `min_on_time` fra faktisk ON. Demand 0 %, OFF og sensorfejl slukker straks.
+- Når pulsen er slut, kan en ny cyklus starte før periodens udløb, hvis `demand × normal periode + carry ≥ min_on_time` og OFF-tiden er mindst `(1 − demand) × normal periode` samt `min_off_time`. Ved 100 % demand og `min_off_time: 0s` kan cyklussen fortsætte uden OFF-blink.
+- Har cyklussen ikke haft en puls, kræves stigende demand for tidlig genstart; kun carry for den forløbne del af cyklussen medregnes. Konstant demand bevarer normal cyklustiming.
+- Ingen ny YAML-option. Opstartsforskydning, boost og failsafe bevares. Reference-YAML bruger `kp: 100`, `ki: 0.007`, 180 min PWM og 30 min minimum ON; værdierne er forsøg og skal observeres på gulvet.
 
 ### Regulatorens opgaver
 

@@ -43,7 +43,7 @@ Påkrævet per zone: `zone_id`, `temperature_sensor`, `valve`. Kontrolparametre 
 
 | Parameter | Default | Grænse / betydning |
 |---|---:|---|
-| `target_temperature` | 21 °C | Fallback ved første climate-opstart; 5–30 °C |
+| `target_temperature` | 20 °C | Fallback ved første climate-opstart; 5–30 °C |
 | `sensor_timeout` | 15 min | Positiv varighed, maks. 2,147,483,647 ms |
 | `kp` | 100 | 0.1–1000, procentpoint/K (100 = 1 K under setpoint giver 100 %) |
 | `ki` | 0.028 | 0–1, procentpoint/(K·s) |
@@ -53,18 +53,18 @@ Påkrævet per zone: `zone_id`, `temperature_sensor`, `valve`. Kontrolparametre 
 | `min_off_time` | 0 s | `0s` deaktiverer; højst 24 timer |
 | `boost_time` | 30 min | `0s` slår boost fra; ellers mindst `min_on_time` |
 
-Default og reference-YAML bruger `kp: 100`, `ki: 0.028`, dvs. fuld demand ved 1 K under setpoint og en integraltid `Kp/Ki` på ca. 60 min, samt 30 min min. ON-tid. Default PWM-periode er 240 min; reference-YAML bruger 180 min. Det er startværdier, ikke endeligt indreguleret på gulvet.
+Komponentens defaults er `kp: 100`, `ki: 0.028`, PWM 240 min og min. ON 30 min. Reference-YAML bruger `ki: 0.007` (integraltid ca. 4 timer), PWM 180 min og første setpoint 20 °C. Det er forsøgsindstillinger, ikke endeligt indreguleret på gulvet.
 
 ## Regulering og failsafe
 
 - PI: `error = target - temperature`; output begrænses til 0–100 % med anti-windup. Integratoren vokser ikke, mens P alene giver ≥100 % (≥1 K under setpoint med defaults).
-- Ved starten af hver PWM-cyklus omsættes demand til én ON-puls (`demand × periode`). Pulsens længde låses for hele cyklussen: stiger demand, eller sænkes setpoint, men stadig over rumtemperaturen, slår det først igennem ved næste cyklusstart.
-- Efter reboot er hver zones første PWM-cyklus automatisk forskudt efter zoneordenen. Ved tre zoner med 180 min periode er de første cyklusser 180, 120 og 60 min; senere cyklusser bruger 180 min. En første cyklus er aldrig kortere end `min_on_time`, og en for kort puls akkumuleres ud fra den faktiske første cykluslængde.
+- Ved cyklusstart beregnes en ON-puls ud fra demand og eventuel carry. Falder demand, kan pulsen forkortes, dog tidligst efter `min_on_time` regnet fra faktisk ON. Demand 0 %, OFF og sensorfejl slukker straks. Stigende demand kan ikke forlænge pulsen ud over den oprindeligt beregnede længde.
+- Efter reboot er hver zones første PWM-cyklus automatisk forskudt efter zoneordenen. Ved tre zoner med 180 min periode er de første planlagte cyklusser 180, 120 og 60 min; senere cyklusser bruger 180 min. En cyklus kan afbrydes tidligt; en planlagt første cyklus er aldrig kortere end `min_on_time`, og en for kort puls akkumuleres ud fra den faktiske første cykluslængde.
 - De første faktiske ventil-ON-kommandoer efter reboot er mindst 5 min fra hinanden per controller, også ved boost. Kun zoner, der faktisk skal tænde, optager en plads. En ventende normal PWM-cyklus begynder først, når den kan tænde; OFF, ugyldig måling og timeout slukker stadig straks.
 - Forsinkelsen gælder kun hver zones første ON efter reboot, ikke senere ON-skift. Den begrænser ikke antallet af åbne ventiler og koordinerer ikke flere controllere. Forsyningen skal stadig dimensioneres efter de faktiske start- og holdestrømme; 5 min er ikke en verificeret strømgrænse.
-- En cyklus afbrydes og genstartes kun, når demand når 0 % (udgang OFF straks; næste positive demand starter en ny cyklus, med forbehold for `min_off_time`), ved boost, ved setpoint ≤ rumtemperatur, OFF-mode og sensorfejl.
+- Stiger demand, kan en ny cyklus begynde tidligt, når en puls mindst svarende til `min_on_time` kan dannes, og udgangen har været OFF i mindst `(1 − demand/100) × PWM-perioden` og `min_off_time`. Ved 100 % demand kan en ny cyklus fortsætte uden OFF-blink, hvis `min_off_time` er 0. En cyklus uden puls kan kun starte tidligt, når demand stiger; dens carry begrænses til den forløbne del.
 - Beregnede pulser kortere end `min_on_time` akkumuleres (carry-over) til senere cyklusser. Med defaults giver demand under 12,5 % (30/240 min) ingen puls i den aktuelle cyklus.
-- Konsekvens af 240 min periode: faldende rumtemperatur kan vente op til en hel cyklus på reaktion, så længe demand er over 0 %. En startet puls fortsætter, indtil demand når 0 %, dvs. når temperaturen er ca. `I/Kp` over setpoint. I bygger fortsat op under en låst cyklus og kan give en længere puls i næste cyklus. Adfærden er dokumenteret, men ikke ændret; den skal observeres på gulvet.
+- Reguleringen reagerer ikke direkte på temperaturens faldhastighed, og gulvets lagrede varme kan stadig give overshoot. Observer respons, temperatur og ventilskift på hardware.
 - Efter et udgangsskift til OFF forsinker `min_off_time` næste normale PWM-start. En forsinket cyklus begynder først, når tiden er udløbet; tabt varmetid under ventetiden akkumuleres ikke. PI fortsætter med at regulere under ventetiden.
 - Boost overstyrer `min_off_time` og kan normalt tænde straks, men respekterer 5-minutters forskydningen ved zonens første ON efter reboot. Tidligere OFF-tid huskes ikke ved reboot. OFF-mode og sensorfejl slukker altid straks; efterfølgende normal regulering respekterer OFF-tiden.
 - **Boost:** Hæves setpoint over rumtemperaturen, eller skiftes OFF → HEAT under setpoint, tændes udgangen i op til `boost_time`. Boost-tiden tælles fra faktisk ON, også når første start må vente. I er frosset under boost; derefter starter PI en ny PWM-cyklus. Boost stopper tidligt, når setpoint nås, men først når udgangen har været ON i mindst `min_on_time`. Nås setpoint, før udgangen er tændt, annulleres boost uden puls. Med defaults er `boost_time` og `min_on_time` begge 30 min, så en tændt boost kører i praksis hele boost-tiden.

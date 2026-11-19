@@ -30,8 +30,8 @@ Push commit med kode og YAML til `main`, før HA bygger ny firmware.
 - [ ] Boost min. ON-hold: når setpoint nås kort efter boost-start, forbliver udgangen ON i mindst `min_on_time`.
 - [ ] Sænket setpoint til ≤ rumtemperatur under boost: udgangen slukker straks.
 - [ ] Konfigureret `min_off_time` (> 0): PWM venter, boost overstyrer, og sensorfejl/OFF stopper straks.
-- [ ] Lang PWM-cyklus (180 min, min. ON 30 min): ON-tid = `demand × 180 min` ved normal cyklusstart og holdes cyklussen ud; demand < 16,7 % giver carry-over. Første cyklus kan være kortere. Notér reaktionstid og overshoot.
-- [ ] Genstart: mode og setpoint gendannes per zone; uden gemt state forventes HEAT og 21 °C.
+- [ ] Responsiv PWM: faldende demand forkorter ON-pulsen efter min. ON; stigende demand kan starte næste cyklus tidligere. Bekræft min. ON/OFF og observer respons, overshoot og switch-count.
+- [ ] Genstart: mode og setpoint gendannes per zone; uden gemt state forventes HEAT og 20 °C.
 - [ ] Watchdog/reboot: enheden kommer op med alle udgange OFF og genoptager regulering efter friske målinger.
 - [ ] Opstart med ufarlige testlaster: første ON pr. zone er mindst 5 min fra de øvrige første ON-kommandoer, også ved boost; sensorfejl/OFF stopper straks. Bekræft, at ventende boost får fuld boost-tid fra faktisk ON.
 - [ ] Første PWM-cyklus ved tre zoner med samme 180 min periode: 180, 120 og 60 min i YAML-orden, når cyklusserne får lov at fuldføre. Senere cyklusser bruger 180 min; kortere pulser end min. ON akkumuleres.

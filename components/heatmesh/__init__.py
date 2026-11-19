@@ -102,7 +102,7 @@ ZONE_SCHEMA = cv.Schema(
         cv.Required(CONF_TEMPERATURE_SENSOR): cv.use_id(sensor.Sensor),
         cv.Required(CONF_VALVE): cv.use_id(switch.Switch),
         # Used until the climate entity has stored a setpoint in flash.
-        cv.Optional(CONF_SETPOINT, default=21.0): cv.All(cv.float_range(min=5.0, max=30.0), _finite),
+        cv.Optional(CONF_SETPOINT, default=20.0): cv.All(cv.float_range(min=5.0, max=30.0), _finite),
         cv.Optional(CONF_SENSOR_TIMEOUT, default="15min"): _sensor_timeout,
         # Gains retain the original units: percentage points / K, and / (K*s).
         # Default kp=100: 1 K below setpoint = 100 % demand. ki=0.028: Ti = kp/ki ~ 60 min.

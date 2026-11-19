@@ -23,13 +23,13 @@
 |---|---:|---|
 | Sensor timeout | 15 min | Udgang OFF ved stale/ugyldig måling |
 | Kp | 100 %/K | 1 K under setpoint = 100 % demand; startværdi, ikke indreguleret |
-| Ki | 0.028 %/(K·s) | `Kp/Ki` ≈ 60 min integraltid |
+| Ki | 0.007 %/(K·s) | `Kp/Ki` ≈ 4 timer integraltid; forsøgsindstilling |
 | PI-opdatering | 30 s | |
-| PWM-periode | 180 min | Tilladt 30–300 min. Første cyklus kan være kortere; ON-tiden låses ved cyklusstart |
+| PWM-periode | 180 min | Første cyklus kan være kortere; PWM reagerer på ændret demand |
 | Min. ventil-ON-puls | 30 min | Kortere beregnet tid akkumuleres (demand < 16,7 % giver ingen puls i en normal cyklus); gælder også boost |
 | Min. ventil-OFF-tid | 0 s | Deaktiveret; boost og genstart overstyrer en konfigureret OFF-tid |
 | Boost | 30 min | Normalt straks ON; første ON efter reboot kan vente på 5-minutters forskydningen |
-| Setpoint ved første boot | 21.0 °C | Climate gemmer derefter setpoint lokalt |
+| Setpoint ved første boot | 20.0 °C | Climate gemmer derefter setpoint lokalt |
 
 Værdierne er startværdier, ikke endelig tuning. PWM-perioden i YAML afviger fra komponentens default på 240 min.
 
@@ -53,9 +53,8 @@ Værdierne er startværdier, ikke endelig tuning. PWM-perioden i YAML afviger fr
 - **Boost holder min. ON-tid.** En boost-puls kortere end `min_on_time` gav kun relæslid og switch-count uden effekt på en termisk telestat; den holdes derfor. Sænket setpoint, OFF og sensorfejl stopper stadig straks.
 - **Climate implementeret før v0.2.** Oprindeligt planlagt til v0.2, men implementeret under v0.1-forløbet for at fjerne YAML-lambdas.
 - **Tuning kun i YAML.** Kp/Ki/PWM/min. ON/OFF/boost ændres via YAML og ny build, ikke fra HA.
-- **Lang PWM-cyklus: 180 min med min. ON 30 min i reference-YAML (default 240 min).** Færre ventilskift på bekostning af reaktionstid. ON-tiden er låst per cyklus: et stigende varmebehov midt i en normal cyklus kan vente op til 3 timer, og en startet puls stopper først ved demand 0 % (ca. `I/Kp` over setpoint). Genberegning af ON-tiden inden for cyklussen er udskudt.
+- **Responsiv PWM:** ON-pulser kan forkortes ved faldende demand efter min. ON; stigende demand kan fremskynde næste cyklus. Normal periode er 180 min i reference-YAML (default 240 min).
 - **Opstart efter reboot:** Første ON per zone forskydes mindst 5 min på samme controller; første PWM-cyklus forskydes efter zoneorden. Efterfølgende starter er ikke begrænset, og forsyningens kapacitet skal stadig verificeres.
-- **Tidlig cyklusstart planlagt til senere (ikke implementeret).** Mens ventilen er OFF, startes en ny cyklus straks, når pulsen reelt bliver til (`demand × periode + carry ≥ min_on_time`) og ventilen har været OFF i mindst `(1 − demand) × periode` og `min_off_time`. Konstant demand giver samme timing som i dag; ved 240 min er maks. ventetid efter en puls 120 min ved 50 % demand og 24 min ved 90 %. En simpel demand-grænse er fravalgt, fordi den får ventilen til at køre ca. 100 % ved konstant demand over grænsen. Altid aktiv, ingen YAML-option. Milepæl ikke fastlagt. Detaljer og tests: [PROJECT_SPEC.md](PROJECT_SPEC.md) §5, *Planlagt senere ændring: tidlig cyklusstart*.
 
 ## Næste trin — prioriteret
 
@@ -64,13 +63,13 @@ Værdierne er startværdier, ikke endelig tuning. PWM-perioden i YAML afviger fr
 3. **Robusthedstests:** Genstart/restore, watchdog/reboot, sensortab/recovery for én zone, og drift uden Home Assistant.
 4. **Min. OFF-tid:** Test en ikke-nul værdi på A16, eller beslut at den forbliver slået fra.
 5. **Hardwaredata:** Mål telestatstrøm og åbne-/lukketid; notér board revision og Y01–Y03-mapping.
-6. **Regulering:** Log demand, temperatur, ON-tid per cyklus og switch-count over tid. Vurder om den låste 180 min-cyklus giver acceptabel reaktionstid og overshoot; ellers genberegning inden for cyklussen eller kortere periode. Finjustering er planlagt til v0.4.
+6. **Regulering:** Log demand, temperatur, ON-tid og switch-count over flere dage. Vurder respons og overshoot med responsiv PWM og `ki: 0.007`; finjustering er planlagt til v0.4.
 
 ## Åbne punkter / ikke del af v0.2
 
 - BLE/Wi-Fi coexistence over længere tid.
 - Langtidsdrift og komfortmæssig PI-tuning (v0.4).
-- Ingen migrering af setpoint fra den gamle template-number-entitet; første climate-start bruger YAML-værdien 21 °C.
+- Ingen migrering af setpoint fra den gamle template-number-entitet; første climate-start bruger YAML-værdien 20 °C.
 - Switch-count persisteres ikke over genstart.
 - v0.3+: anden A16, RS485/packet transport, delt sensor registry/dublethåndtering, pumpelogik og HMI.
 

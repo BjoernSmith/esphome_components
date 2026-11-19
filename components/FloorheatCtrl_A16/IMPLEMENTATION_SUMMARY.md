@@ -14,7 +14,7 @@ ZoneController (én instans per zone, ingen kopieret reguleringskode)
     ├─ freshness/timeout og failsafe OFF
     ├─ PI + anti-windup → heat demand 0–100 %
     ├─ boost: normalt straks ON ved hævet setpoint, min. ON-hold
-    ├─ tidsproportional udgang (ON-tid låst per cyklus); korte pulser carry-over; valgfri min. OFF-tid
+    ├─ responsiv tidsproportional udgang; korte pulser carry-over; valgfri min. OFF-tid
     └─ ESPHome valve switch (Y01–Y03)
 
 Valgfri ZoneClimate + native diagnostic entities per zone
@@ -27,10 +27,9 @@ Valgfri ZoneClimate + native diagnostic entities per zone
 
 - `error = target - measured`; `demand = clamp(Kp × error + integrator, 0, 100 %)`.
 - Integratoren opdateres i sekunder og har betinget anti-windup: den vokser ikke, mens P alene giver ≥ 100 %.
-- Reference-YAML: `Kp=100 %/K`, `Ki=0.028 %/(K·s)` (Ti ≈ 60 min), loop 30 s, PWM 180 min (default 240, tilladt 30–300), min. ON 30 min, min. OFF 0 s, boost 30 min, timeout 15 min.
+- Reference-YAML: `Kp=100 %/K`, `Ki=0.007 %/(K·s)` (Ti ≈ 4 timer), loop 30 s, PWM 180 min (default 240, tilladt 30–300), min. ON 30 min, min. OFF 0 s, boost 30 min, timeout 15 min.
 - Efter reboot er første ON pr. zone mindst 5 min fra andre første ON på samme controller. Første PWM-cyklus er forskudt efter zoneorden; ved tre zoner med 180 min periode er den 180, 120 eller 60 min. Senere starter er ikke begrænset.
-- Demand omsættes ved cyklusstart til én ON-puls (`demand × periode`), som holdes hele cyklussen. Pulser kortere end `min_on_time` akkumuleres (carry-over) til senere cyklusser; med defaults giver demand under 12,5 % ingen puls i cyklussen.
-- Cyklussen genstartes kun ved demand 0 %, boost, setpoint ≤ rumtemperatur, OFF og sensorfejl. Med 240 min periode kan et stigende varmebehov derfor vente op til en hel cyklus, og en startet puls stopper først ved demand 0 % (ca. `I/Kp` over setpoint). Det er dokumenteret, men ikke ændret.
+- Demand omsættes ved cyklusstart til én ON-puls. Faldende demand kan forkorte pulsen efter min. ON; stigende demand kan fremskynde en ny cyklus efter den beregnede OFF-tid og min. OFF. Korte pulser akkumuleres som carry.
 - `min_off_time` (> 0) forsinker næste normale PWM-start efter en OFF-overgang. Boost og genstart overstyrer ventetiden.
 - **Boost:** Setpoint hævet over rumtemperaturen (eller OFF → HEAT under setpoint) tænder normalt straks i op til `boost_time` med frosset I; første ON efter reboot kan vente på opstartsforskydningen. Tiden tælles fra faktisk ON. Når setpoint nås, slutter boost først, når udgangen har været ON i mindst `min_on_time`; nås setpoint, før udgangen er tændt, annulleres boost uden puls. Derefter starter PI en ny PWM-cyklus. Med `boost_time` = `min_on_time` = 30 min kører en tændt boost i praksis hele boost-tiden.
 - Setpoint sænket til ≤ rumtemperatur: boost afbrydes, I og carry-over nulstilles, og udgangen slukker straks. Sænket, men stadig over rumtemperatur: PI fortsætter med bevaret I.
