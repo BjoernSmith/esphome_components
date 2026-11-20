@@ -59,10 +59,11 @@ esp32_ble_tracker:
 bluetooth_proxy:
   active: false
 
-# External component: heatmesh (GitHub version)
+# External components: heatmesh, plus a bthome_mithermometer override that keeps
+# pvvx temperature packets sharing a packet ID with the battery-voltage packet.
 external_components:
   - source: github://BjoernSmith/esphome_components@main
-    components: [heatmesh]
+    components: [heatmesh, bthome_mithermometer]
     refresh: 0s
 
 i2c:
