@@ -8,7 +8,7 @@ substitutions:
   sensor_02_friendly_name: "Nohr"
   sensor_02_mac_address: "A4:C1:38:06:B9:D8"
   sensor_03_friendly_name: "Bagstue"
-  sensor_03_mac_address: "A4:C1:38:09:7B:7B"
+  sensor_03_mac_address: "A4:C1:38:05:D8:5F"
   zone_id_1: victor_room
   zone_name_1: "Victor"
   zone_id_2: nohr_room
